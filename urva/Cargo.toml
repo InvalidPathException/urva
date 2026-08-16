@@ -1,0 +1,9 @@
+[package]
+name = "urva"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "MongoDB ODM for Rust"
+
+[dependencies]
