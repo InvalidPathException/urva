@@ -7,3 +7,6 @@ license.workspace = true
 description = "MongoDB ODM for Rust"
 
 [dependencies]
+mongodb.workspace = true
+serde.workspace = true
+thiserror.workspace = true
