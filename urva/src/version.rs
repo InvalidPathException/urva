@@ -8,7 +8,6 @@ impl Version {
         self.0
     }
 
-    #[allow(dead_code)]
     pub(crate) const fn committed(value: i64) -> Self {
         Version(value)
     }
