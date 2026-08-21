@@ -1,0 +1,5 @@
+error: `total` is stored as `writeName` but read back as `readName`
+ --> tests/compile_fail/split_rename.rs:7:9
+  |
+7 |     pub total: i64,
+  |         ^^^^^

@@ -1,0 +1,11 @@
+error: the stored name `a.b` contains a `.`, which query paths read as nested-field access
+ --> tests/compile_fail/errors_report_together.rs:7:9
+  |
+7 |     pub status: String,
+  |         ^^^^^^
+
+error: the stored name `c.d` contains a `.`, which query paths read as nested-field access
+ --> tests/compile_fail/errors_report_together.rs:9:9
+  |
+9 |     pub total: i64,
+  |         ^^^^^

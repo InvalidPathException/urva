@@ -10,3 +10,7 @@ description = "MongoDB ODM for Rust"
 mongodb.workspace = true
 serde.workspace = true
 thiserror.workspace = true
+urva-derive.workspace = true
+
+[dev-dependencies]
+trybuild.workspace = true

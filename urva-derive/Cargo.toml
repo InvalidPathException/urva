@@ -10,3 +10,7 @@ description = "Derive macros for urva"
 proc-macro = true
 
 [dependencies]
+proc-macro2.workspace = true
+quote.workspace = true
+serde_derive_internals = "0.30"
+syn.workspace = true

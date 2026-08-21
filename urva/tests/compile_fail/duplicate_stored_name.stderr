@@ -1,0 +1,21 @@
+error: two fields store under `status`
+ --> tests/compile_fail/duplicate_stored_name.rs:8:9
+  |
+8 |     pub state: String,
+  |         ^^^^^
+
+error: the first field stored under `status`
+ --> tests/compile_fail/duplicate_stored_name.rs:6:9
+  |
+6 |     pub status: String,
+  |         ^^^^^^
+
+warning: unreachable pattern
+ --> tests/compile_fail/duplicate_stored_name.rs:7:22
+  |
+6 |     pub status: String,
+  |         ------ matches all the relevant values
+7 |     #[serde(rename = "status")]
+  |                      ^^^^^^^^ no value can reach this
+  |
+  = note: `#[warn(unreachable_patterns)]` (part of `#[warn(unused)]`) on by default

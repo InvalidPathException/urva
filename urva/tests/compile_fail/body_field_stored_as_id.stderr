@@ -1,0 +1,11 @@
+error: the stored name `_id` is reserved
+ --> tests/compile_fail/body_field_stored_as_id.rs:6:9
+  |
+6 |     pub _id: ObjectId,
+  |         ^^^
+
+error: the stored name `_id` is reserved
+  --> tests/compile_fail/body_field_stored_as_id.rs:14:9
+   |
+14 |     pub slug: String,
+   |         ^^^^

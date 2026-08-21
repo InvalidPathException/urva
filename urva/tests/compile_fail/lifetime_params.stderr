@@ -1,0 +1,5 @@
+error: `#[derive(Entity)]` does not support lifetime parameters
+ --> tests/compile_fail/lifetime_params.rs:5:17
+  |
+5 | pub struct Order<'a> {
+  |                 ^

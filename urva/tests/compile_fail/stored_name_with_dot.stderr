@@ -1,0 +1,5 @@
+error: the stored name `a.b` contains a `.`, which query paths read as nested-field access
+ --> tests/compile_fail/stored_name_with_dot.rs:7:9
+  |
+7 |     pub weird: String,
+  |         ^^^^^

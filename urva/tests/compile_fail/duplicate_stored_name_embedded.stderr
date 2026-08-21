@@ -1,0 +1,21 @@
+error: two fields store under `city`
+ --> tests/compile_fail/duplicate_stored_name_embedded.rs:7:9
+  |
+7 |     pub town: String,
+  |         ^^^^
+
+error: the first field stored under `city`
+ --> tests/compile_fail/duplicate_stored_name_embedded.rs:5:9
+  |
+5 |     pub city: String,
+  |         ^^^^
+
+warning: unreachable pattern
+ --> tests/compile_fail/duplicate_stored_name_embedded.rs:6:22
+  |
+5 |     pub city: String,
+  |         ---- matches all the relevant values
+6 |     #[serde(rename = "city")]
+  |                      ^^^^^^ no value can reach this
+  |
+  = note: `#[warn(unreachable_patterns)]` (part of `#[warn(unused)]`) on by default

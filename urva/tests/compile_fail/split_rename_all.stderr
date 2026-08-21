@@ -1,0 +1,5 @@
+error: split serialize/deserialize `rename_all` writes fields under one set of names and reads them back under another
+ --> tests/compile_fail/split_rename_all.rs:6:12
+  |
+6 | pub struct Order {
+  |            ^^^^^

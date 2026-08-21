@@ -1,0 +1,5 @@
+error: `#[serde(from)]` stores this struct through another type, so its fields do not describe the stored document
+  --> tests/compile_fail/serde_from_container.rs:10:16
+   |
+10 | #[serde(from = "RawOrder")]
+   |                ^^^^^^^^^^

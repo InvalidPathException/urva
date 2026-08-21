@@ -1,0 +1,5 @@
+error: `#[entity]` applies to the struct, not a field
+ --> tests/compile_fail/entity_on_field.rs:6:5
+  |
+6 |     #[entity(collection = "totals")]
+  |     ^

@@ -1,0 +1,11 @@
+error: the stored name `version` is reserved for the version lock. Rename the field, or the lock with `versioned = "..."`
+ --> tests/compile_fail/body_field_stored_as_version.rs:6:9
+  |
+6 |     pub version: i64,
+  |         ^^^^^^^
+
+error: the stored name `rev` is reserved for the version lock. Rename the field, or the lock with `versioned = "..."`
+  --> tests/compile_fail/body_field_stored_as_version.rs:14:9
+   |
+14 |     pub revision: u32,
+   |         ^^^^^^^^

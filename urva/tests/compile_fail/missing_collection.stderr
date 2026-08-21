@@ -1,0 +1,5 @@
+error: missing `#[entity(collection = "...")]`
+ --> tests/compile_fail/missing_collection.rs:4:12
+  |
+4 | pub struct T {
+  |            ^

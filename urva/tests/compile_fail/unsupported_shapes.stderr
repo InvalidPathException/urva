@@ -1,0 +1,17 @@
+error: `#[derive(Entity)]` does not support generic types
+ --> tests/compile_fail/unsupported_shapes.rs:5:19
+  |
+5 | pub struct Generic<T> {
+  |                   ^
+
+error: `#[derive(Entity)]` supports structs only
+  --> tests/compile_fail/unsupported_shapes.rs:11:10
+   |
+11 | pub enum Shape {
+   |          ^^^^^
+
+error: `#[derive(Entity)]` requires named fields
+  --> tests/compile_fail/unsupported_shapes.rs:18:12
+   |
+18 | pub struct Tuple(pub i64);
+   |            ^^^^^

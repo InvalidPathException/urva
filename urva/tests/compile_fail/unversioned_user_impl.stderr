@@ -1,0 +1,17 @@
+error[E0271]: type mismatch resolving `<Order as Entity>::Lock == ()`
+ --> tests/compile_fail/unversioned_user_impl.rs:9:28
+  |
+9 | impl urva::Unversioned for Order {}
+  |                            ^^^^^ type mismatch resolving `<Order as Entity>::Lock == ()`
+  |
+note: expected this to be `()`
+ --> tests/compile_fail/unversioned_user_impl.rs:3:10
+  |
+3 | #[derive(Entity, Serialize, Deserialize)]
+  |          ^^^^^^
+note: required by a bound in `Unversioned`
+ --> src/entity.rs
+  |
+  | pub trait Unversioned: Entity<Lock = ()> {}
+  |                               ^^^^^^^^^ required by this bound in `Unversioned`
+  = note: this error originates in the derive macro `Entity` (in Nightly builds, run with -Z macro-backtrace for more info)
