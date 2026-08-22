@@ -1,0 +1,32 @@
+error[E0624]: associated function `new` is private
+  --> tests/compile_fail/hidden_constructors.rs:10:43
+   |
+10 |     let _ = urva::Field::<Order, String>::new("total");
+   |                                           ^^^ private associated function
+   |
+  ::: src/field.rs
+   |
+   |     pub(crate) const fn new(path: &'static str) -> Self {
+   |     --------------------------------------------------- private associated function defined here
+
+error[E0624]: associated function `committed` is private
+  --> tests/compile_fail/hidden_constructors.rs:11:28
+   |
+11 |     let _ = urva::Version::committed(1);
+   |                            ^^^^^^^^^ private associated function
+   |
+  ::: src/version.rs
+   |
+   |     pub(crate) const fn committed(value: i64) -> Self {
+   |     ------------------------------------------------- private associated function defined here
+
+error[E0624]: associated function `new` is private
+  --> tests/compile_fail/hidden_constructors.rs:12:33
+   |
+12 |     let _ = urva::Doc::<Order>::new(ObjectId::new(), (), Order { total: 1 });
+   |                                 ^^^ private associated function
+   |
+  ::: src/doc.rs
+   |
+   |     pub(crate) fn new(id: E::Id, version: E::Lock, body: E) -> Self {
+   |     --------------------------------------------------------------- private associated function defined here

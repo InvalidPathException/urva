@@ -1,10 +1,11 @@
 use proc_macro2::Span;
 use serde_derive_internals::{Ctxt, attr};
 use syn::spanned::Spanned;
-use syn::{Data, DeriveInput, Fields, Ident, LitStr, Type};
+use syn::{Data, DeriveInput, Fields, Ident, LitStr, Type, Visibility};
 
 pub struct FieldModel {
     pub ident: Ident,
+    pub ty: Type,
     pub stored_name: String,
     pub unstorable: Option<&'static str>,
     pub fully_skipped: bool,
@@ -19,6 +20,7 @@ impl FieldModel {
 
 pub struct StructModel {
     pub ident: Ident,
+    pub vis: Visibility,
     pub fields: Vec<FieldModel>,
 }
 
@@ -87,7 +89,7 @@ pub fn parse_struct(input: &DeriveInput, derive_name: &str) -> syn::Result<Struc
     let mut fields: Vec<FieldModel> = Vec::new();
     for (field, serde) in named.named.iter().zip(&serde_fields) {
         let ident = field.ident.clone().expect("named field");
-        match field_model(ident, serde, derive_name, split_names, &fields) {
+        match field_model(ident, &field.ty, serde, derive_name, split_names, &fields) {
             Ok(model) => fields.push(model),
             Err(error) => errors.push(error),
         }
@@ -96,6 +98,7 @@ pub fn parse_struct(input: &DeriveInput, derive_name: &str) -> syn::Result<Struc
 
     Ok(StructModel {
         ident: input.ident.clone(),
+        vis: input.vis.clone(),
         fields,
     })
 }
@@ -123,6 +126,7 @@ fn delegation_errors(container: &attr::Container) -> Vec<syn::Error> {
 
 fn field_model(
     ident: Ident,
+    ty: &Type,
     serde: &attr::Field,
     derive_name: &str,
     split_names: bool,
@@ -188,6 +192,7 @@ fn field_model(
 
     Ok(FieldModel {
         ident,
+        ty: ty.clone(),
         stored_name,
         unstorable,
         fully_skipped,
@@ -291,5 +296,58 @@ fn combine_errors(errors: Vec<syn::Error>) -> syn::Result<()> {
             }
             Err(first)
         }
+    }
+}
+
+pub fn token_type(ty: &Type) -> Type {
+    if let Some(inner) = wrapper_inner_type(ty, "Box") {
+        return token_type(&inner);
+    }
+    for wrapper in ["Option", "Vec"] {
+        if let Some(inner) = wrapper_inner_type(ty, wrapper) {
+            return rebuild_wrapper(ty, token_type(&inner));
+        }
+    }
+    ty.clone()
+}
+
+fn rebuild_wrapper(ty: &Type, inner: Type) -> Type {
+    let Type::Path(mut path) = peel_type_groups(ty).clone() else {
+        return ty.clone();
+    };
+    if let Some(last) = path.path.segments.last_mut()
+        && let syn::PathArguments::AngleBracketed(args) = &mut last.arguments
+        && let Some(arg) = args.args.first_mut()
+    {
+        *arg = syn::GenericArgument::Type(inner);
+    }
+    Type::Path(path)
+}
+
+fn peel_type_groups(ty: &Type) -> &Type {
+    match ty {
+        Type::Group(group) => peel_type_groups(&group.elem),
+        Type::Paren(paren) => peel_type_groups(&paren.elem),
+        other => other,
+    }
+}
+
+fn wrapper_inner_type(ty: &Type, wrapper: &str) -> Option<Type> {
+    let Type::Path(path) = peel_type_groups(ty) else {
+        return None;
+    };
+    let last = path.path.segments.last()?;
+    if last.ident != wrapper {
+        return None;
+    }
+    let syn::PathArguments::AngleBracketed(args) = &last.arguments else {
+        return None;
+    };
+    if args.args.len() != 1 {
+        return None;
+    }
+    match args.args.first()? {
+        syn::GenericArgument::Type(inner) => Some(inner.clone()),
+        _ => None,
     }
 }

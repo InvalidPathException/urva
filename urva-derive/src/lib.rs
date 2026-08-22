@@ -1,3 +1,4 @@
+mod case;
 mod codegen;
 mod entity;
 
