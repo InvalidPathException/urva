@@ -12,11 +12,45 @@ mod sealed {
     pub trait Sealed {}
     impl Sealed for super::Full {}
     impl Sealed for super::MatchOnly {}
+    impl<T> Sealed for Vec<T> {}
+    impl<T> Sealed for Option<Vec<T>> {}
 }
 
 pub trait Capability: sealed::Sealed {}
 impl Capability for Full {}
 impl Capability for MatchOnly {}
+
+pub trait Filterable: Capability {}
+impl Filterable for Full {}
+impl Filterable for MatchOnly {}
+
+pub trait ArrayLike: sealed::Sealed {
+    type Elem;
+}
+impl<T> ArrayLike for Vec<T> {
+    type Elem = T;
+}
+impl<T> ArrayLike for Option<Vec<T>> {
+    type Elem = T;
+}
+
+pub trait Ordered {}
+
+impl Ordered for i8 {}
+impl Ordered for i16 {}
+impl Ordered for i32 {}
+impl Ordered for i64 {}
+impl Ordered for u8 {}
+impl Ordered for u16 {}
+impl Ordered for u32 {}
+impl Ordered for u64 {}
+impl Ordered for f32 {}
+impl Ordered for f64 {}
+impl Ordered for String {}
+impl Ordered for mongodb::bson::DateTime {}
+impl Ordered for mongodb::bson::Decimal128 {}
+impl Ordered for mongodb::bson::oid::ObjectId {}
+impl<T: Ordered> Ordered for Option<T> {}
 
 pub struct Field<E: ?Sized, T: ?Sized, Cap = Full, Enc = Plain> {
     path: &'static str,

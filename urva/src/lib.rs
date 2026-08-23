@@ -5,12 +5,17 @@ mod doc;
 mod entity;
 mod error;
 mod field;
+mod filter;
 mod version;
 
 pub use doc::{Doc, Lock, NewId};
 pub use entity::{Embedded, Entity, Unversioned, Versioned};
 pub use error::{Error, Result};
-pub use field::{Capability, Field, Full, MatchField, MatchOnly, Plain, VersionField};
+pub use field::{
+    ArrayLike, Capability, Field, Filterable, Full, MatchField, MatchOnly, Ordered, Plain,
+    VersionField,
+};
+pub use filter::{FieldValue, Filter, all, any, text};
 pub use version::Version;
 
 pub use urva_derive::{Embedded, Entity};
@@ -18,7 +23,7 @@ pub use urva_derive::{Embedded, Entity};
 pub mod prelude {
     pub use crate::bson::DateTime;
     pub use crate::bson::oid::ObjectId;
-    pub use crate::{Doc, Embedded, Entity, Error, Result, Version};
+    pub use crate::{Doc, Embedded, Entity, Error, Filter, Result, Version, all, any, text};
     pub use serde::{Deserialize, Serialize};
 }
 
