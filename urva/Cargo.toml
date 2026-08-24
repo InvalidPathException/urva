@@ -14,4 +14,5 @@ thiserror.workspace = true
 urva-derive.workspace = true
 
 [dev-dependencies]
+tokio.workspace = true
 trybuild.workspace = true
