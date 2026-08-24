@@ -6,6 +6,7 @@ mod entity;
 mod error;
 mod field;
 mod filter;
+mod sort;
 mod version;
 
 pub use doc::{Doc, Lock, NewId};
@@ -16,6 +17,7 @@ pub use field::{
     VersionField,
 };
 pub use filter::{FieldValue, Filter, all, any, text};
+pub use sort::Sort;
 pub use version::Version;
 
 pub use urva_derive::{Embedded, Entity};
@@ -23,7 +25,7 @@ pub use urva_derive::{Embedded, Entity};
 pub mod prelude {
     pub use crate::bson::DateTime;
     pub use crate::bson::oid::ObjectId;
-    pub use crate::{Doc, Embedded, Entity, Error, Filter, Result, Version, all, any, text};
+    pub use crate::{Doc, Embedded, Entity, Error, Filter, Result, Sort, Version, all, any, text};
     pub use serde::{Deserialize, Serialize};
 }
 

@@ -1,4 +1,4 @@
-use mongodb::bson::doc;
+use mongodb::bson::{doc, to_vec};
 use urva::prelude::*;
 
 #[derive(Entity, Serialize, Deserialize, Debug)]
@@ -335,4 +335,24 @@ fn version_token_filters_by_exact_value() {
         o::version.eq(v).into_document().unwrap(),
         doc! { "version": { "$eq": 3_i64 } }
     );
+}
+
+#[test]
+fn sorts() {
+    let s = o::created_at.desc().then(o::total.asc());
+    assert_eq!(
+        to_vec(&s.into_document()).unwrap(),
+        to_vec(&doc! { "createdAt": -1, "total": 1 }).unwrap(),
+        "keys keep the order they were added in"
+    );
+    let s = o::created_at
+        .asc()
+        .then(o::total.asc())
+        .then(o::created_at.desc());
+    assert_eq!(
+        to_vec(&s.into_document()).unwrap(),
+        to_vec(&doc! { "total": 1, "createdAt": -1 }).unwrap(),
+        "naming a field again moves it last with the new direction"
+    );
+    assert_eq!(o::_id.desc().into_document(), doc! { "_id": -1 });
 }
