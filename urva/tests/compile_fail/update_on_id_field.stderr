@@ -1,0 +1,27 @@
+error[E0599]: the method `set` exists for struct `urva::Field<Order, urva::prelude::ObjectId, MatchOnly>`, but its trait bounds were not satisfied
+  --> tests/compile_fail/update_on_id_field.rs:10:23
+   |
+10 |     order_fields::_id.set(ObjectId::new())
+   |                       ^^^ method cannot be called due to unsatisfied trait bounds
+   |
+  ::: src/field.rs
+   |
+   | pub struct MatchOnly;
+   | -------------------- doesn't satisfy `MatchOnly: Updatable`
+   |
+   = note: the following trait bounds were not satisfied:
+           `MatchOnly: Updatable`
+
+error[E0599]: the method `unset` exists for struct `urva::Field<Order, urva::prelude::ObjectId, MatchOnly>`, but its trait bounds were not satisfied
+  --> tests/compile_fail/update_on_id_field.rs:14:23
+   |
+14 |     order_fields::_id.unset()
+   |                       ^^^^^ method cannot be called due to unsatisfied trait bounds
+   |
+  ::: src/field.rs
+   |
+   | pub struct MatchOnly;
+   | -------------------- doesn't satisfy `MatchOnly: Updatable`
+   |
+   = note: the following trait bounds were not satisfied:
+           `MatchOnly: Updatable`

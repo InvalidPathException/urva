@@ -24,6 +24,9 @@ pub trait Filterable: Capability {}
 impl Filterable for Full {}
 impl Filterable for MatchOnly {}
 
+pub trait Updatable: Capability {}
+impl Updatable for Full {}
+
 pub trait ArrayLike: sealed::Sealed {
     type Elem;
 }
