@@ -21,6 +21,7 @@ pub use field::{
 pub use filter::{FieldValue, Filter, all, any, text};
 pub use ops::count::{CountBuilder, EstimatedCountBuilder};
 pub use ops::find::{FindBuilder, FindOneBuilder};
+pub use ops::save::InsertBuilder;
 pub use sort::Sort;
 pub use store::{Store, StoreExt};
 pub use version::Version;
