@@ -12,6 +12,7 @@ crate::ops::builder!(
     CountOptions,
     u64,
     [skip, limit: u64],
+    {},
     |collection, filter, options| {
         Ok(collection
             .count_documents(filter?)

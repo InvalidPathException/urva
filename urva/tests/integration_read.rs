@@ -204,6 +204,16 @@ async fn serde_only_values_match_stored_documents() {
     assert_eq!(found.len(), 1);
     assert_eq!(found[0].count, 3);
 
+    store
+        .update_one(tf::count.eq(9u32), tf::state.set(TicketState::OnHold))
+        .await
+        .unwrap();
+    let n = store
+        .count_documents(tf::state.eq(TicketState::OnHold))
+        .await
+        .unwrap();
+    assert_eq!(n, 2);
+
     t.drop().await;
 }
 

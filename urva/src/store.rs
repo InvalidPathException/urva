@@ -3,8 +3,12 @@ use mongodb::{Collection, Database};
 use crate::doc::Doc;
 use crate::entity::Entity;
 use crate::filter::{FieldValue, Filter};
+use crate::ops::ById;
 use crate::ops::count::{CountBuilder, EstimatedCountBuilder};
+use crate::ops::delete::{DeleteManyBuilder, DeleteOneBuilder};
 use crate::ops::find::{FindBuilder, FindOneBuilder};
+use crate::ops::update::{UpdateManyBuilder, UpdateOneBuilder};
+use crate::update::Update;
 
 pub struct Store<E: Entity> {
     collection: Collection<Doc<E>>,
@@ -31,7 +35,7 @@ impl<E: Entity> Store<E> {
         FindOneBuilder::new(self.collection.clone(), filter)
     }
 
-    pub fn find_by_id(&self, id: impl FieldValue<E::Id>) -> FindOneBuilder<E> {
+    pub fn find_by_id(&self, id: impl FieldValue<E::Id>) -> FindOneBuilder<E, ById> {
         FindOneBuilder::new(self.collection.clone(), id_filter(id))
     }
 
@@ -41,6 +45,34 @@ impl<E: Entity> Store<E> {
 
     pub fn estimated_document_count(&self) -> EstimatedCountBuilder<E> {
         EstimatedCountBuilder::new(self.collection.clone())
+    }
+
+    pub fn update_one(&self, filter: Filter<E>, update: Update<E>) -> UpdateOneBuilder<E> {
+        UpdateOneBuilder::new(self.collection.clone(), filter, update)
+    }
+
+    pub fn update_by_id(
+        &self,
+        id: impl FieldValue<E::Id>,
+        update: Update<E>,
+    ) -> UpdateOneBuilder<E, ById> {
+        UpdateOneBuilder::new(self.collection.clone(), id_filter(id), update)
+    }
+
+    pub fn update_many(&self, filter: Filter<E>, update: Update<E>) -> UpdateManyBuilder<E> {
+        UpdateManyBuilder::new(self.collection.clone(), filter, update)
+    }
+
+    pub fn delete_one(&self, filter: Filter<E>) -> DeleteOneBuilder<E> {
+        DeleteOneBuilder::new(self.collection.clone(), filter)
+    }
+
+    pub fn delete_by_id(&self, id: impl FieldValue<E::Id>) -> DeleteOneBuilder<E, ById> {
+        DeleteOneBuilder::new(self.collection.clone(), id_filter(id))
+    }
+
+    pub fn delete_many(&self, filter: Filter<E>) -> DeleteManyBuilder<E> {
+        DeleteManyBuilder::new(self.collection.clone(), filter)
     }
 }
 

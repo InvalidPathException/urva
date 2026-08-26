@@ -21,8 +21,11 @@ pub use field::{
 };
 pub use filter::{FieldValue, Filter, all, any, text};
 pub use ops::count::{CountBuilder, EstimatedCountBuilder};
+pub use ops::delete::{DeleteManyBuilder, DeleteOneBuilder};
 pub use ops::find::{FindBuilder, FindOneBuilder};
 pub use ops::save::InsertBuilder;
+pub use ops::update::{UpdateManyBuilder, UpdateOneBuilder};
+pub use ops::{ByFilter, ById};
 pub use sort::Sort;
 pub use store::{Store, StoreExt};
 pub use update::{Numeric, Update, apply};

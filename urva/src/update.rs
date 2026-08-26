@@ -3,6 +3,7 @@ use std::marker::PhantomData;
 use mongodb::bson::{Bson, Document, doc, ser};
 use serde::Serialize;
 
+use crate::doc::Lock;
 use crate::field::{ArrayLike, Field, Ordered, Updatable, VersionField};
 use crate::filter::FieldValue;
 
@@ -74,6 +75,33 @@ impl<E: ?Sized> Update<E> {
             },
         }
     }
+}
+
+pub(crate) fn seed_on_upsert<E: crate::entity::Entity>(
+    update: &mut Document,
+    upsert: Option<bool>,
+) {
+    if upsert != Some(true) || names_field(update, E::VERSION_FIELD) {
+        return;
+    }
+    let mut seed = Document::new();
+    E::Lock::first().write(&mut seed, E::VERSION_FIELD);
+    if seed.is_empty() {
+        return;
+    }
+    match update.get_mut("$setOnInsert") {
+        Some(Bson::Document(existing)) => existing.extend(seed),
+        _ => {
+            update.insert("$setOnInsert", seed);
+        }
+    }
+}
+
+fn names_field(update: &Document, field: &str) -> bool {
+    update.values().any(|operand| match operand {
+        Bson::Document(paths) => paths.contains_key(field),
+        _ => false,
+    })
 }
 
 pub fn apply<E: ?Sized>(updates: impl IntoIterator<Item = Update<E>>) -> Update<E> {

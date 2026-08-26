@@ -264,3 +264,165 @@ async fn filter_fuzz_matches_in_memory_model() {
 
     t.drop().await;
 }
+
+#[derive(Entity, Serialize, Deserialize, Debug, Clone)]
+#[entity(collection = "probe")]
+pub struct Probe {
+    pub a: i64,
+    pub b: i64,
+    pub c: i64,
+    pub tags: Vec<String>,
+}
+
+use probe_fields as p;
+
+fn probe() -> Probe {
+    Probe {
+        a: 0,
+        b: 0,
+        c: 0,
+        tags: Vec::new(),
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Op {
+    Set,
+    Inc,
+    Unset,
+    Min,
+    Max,
+    Push,
+    AddToSet,
+    PopLast,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Path {
+    A,
+    B,
+    C,
+    Tags,
+}
+
+fn render(op: Op, path: Path, v: i64) -> Update<Probe> {
+    match (path, op) {
+        (Path::A, Op::Set) => p::a.set(v),
+        (Path::A, Op::Inc) => p::a.inc(v),
+        (Path::A, Op::Unset) => p::a.unset(),
+        (Path::A, Op::Min) => p::a.min(v),
+        (Path::A, Op::Max) => p::a.max(v),
+        (Path::B, Op::Set) => p::b.set(v),
+        (Path::B, Op::Inc) => p::b.inc(v),
+        (Path::B, Op::Unset) => p::b.unset(),
+        (Path::B, Op::Min) => p::b.min(v),
+        (Path::B, Op::Max) => p::b.max(v),
+        (Path::C, Op::Set) => p::c.set(v),
+        (Path::C, Op::Inc) => p::c.inc(v),
+        (Path::C, Op::Unset) => p::c.unset(),
+        (Path::C, Op::Min) => p::c.min(v),
+        (Path::C, Op::Max) => p::c.max(v),
+        (Path::Tags, Op::Push) => p::tags.push(v.to_string()),
+        (Path::Tags, Op::AddToSet) => p::tags.add_to_set(v.to_string()),
+        (Path::Tags, Op::PopLast) => p::tags.pop_last(),
+        (Path::Tags, Op::Unset) => p::tags.unset(),
+        (Path::Tags, _) | (_, Op::Push | Op::AddToSet | Op::PopLast) => unreachable!(),
+    }
+}
+
+fn gen_op(rng: &mut Lcg) -> (Op, Path, i64) {
+    let path = match rng.below(4) {
+        0 => Path::A,
+        1 => Path::B,
+        2 => Path::C,
+        _ => Path::Tags,
+    };
+    let op = if path == Path::Tags {
+        match rng.below(4) {
+            0 => Op::Push,
+            1 => Op::AddToSet,
+            2 => Op::PopLast,
+            _ => Op::Unset,
+        }
+    } else {
+        match rng.below(5) {
+            0 => Op::Set,
+            1 => Op::Inc,
+            2 => Op::Unset,
+            3 => Op::Min,
+            _ => Op::Max,
+        }
+    };
+    (op, path, rng.below(20) as i64 - 10)
+}
+
+#[tokio::test]
+async fn update_composition_fuzz_agrees_with_the_server() {
+    let Some(t) = TestDb::connect("review_update_fuzz").await else {
+        return;
+    };
+    let store: Store<Probe> = t.db.store();
+    let id = *store.insert(probe()).await.unwrap().id();
+
+    let mut rng = Lcg(0xfeed_beef);
+    let (mut ok, mut ours, mut theirs) = (0, 0, 0);
+    for trial in 0..250 {
+        let n = 1 + rng.below(4) as usize;
+        let ops: Vec<(Op, Path, i64)> = (0..n).map(|_| gen_op(&mut rng)).collect();
+        let repeated_pair = ops
+            .iter()
+            .enumerate()
+            .any(|(i, (op, path, _))| ops[..i].iter().any(|(o, q, _)| o == op && q == path));
+        let repeated_path = ops
+            .iter()
+            .enumerate()
+            .any(|(i, (_, path, _))| ops[..i].iter().any(|(_, q, _)| q == path));
+
+        let mut update = render(ops[0].0, ops[0].1, ops[0].2);
+        for (op, path, v) in &ops[1..] {
+            update = update.and(render(*op, *path, *v));
+        }
+        let result = store.update_one(p::_id.eq(id), update).await;
+        match result {
+            Ok(_) => {
+                ok += 1;
+                assert!(
+                    !repeated_path,
+                    "trial {trial}: server accepted a repeated path: {ops:?}"
+                );
+            }
+            Err(Error::InvalidUpdate { message }) => {
+                ours += 1;
+                assert!(
+                    repeated_pair,
+                    "trial {trial}: InvalidUpdate without a repeated (op, path): {ops:?}: {message}"
+                );
+            }
+            Err(Error::Driver(err)) => {
+                theirs += 1;
+                assert!(
+                    repeated_path && !repeated_pair,
+                    "trial {trial}: driver error for {ops:?}: {err}"
+                );
+                let code = match &*err.kind {
+                    mongodb::error::ErrorKind::Write(mongodb::error::WriteFailure::WriteError(
+                        w,
+                    )) => w.code,
+                    other => panic!("trial {trial}: unexpected error kind {other:?}"),
+                };
+                assert_eq!(
+                    code, 40,
+                    "trial {trial}: ConflictingUpdateOperators for {ops:?}"
+                );
+            }
+            Err(other) => panic!("trial {trial}: {other:?}"),
+        }
+    }
+    eprintln!("update fuzz: ok={ok} ours={ours} theirs={theirs}");
+    assert!(
+        ok > 0 && ours > 0 && theirs > 0,
+        "every class was exercised"
+    );
+
+    t.drop().await;
+}

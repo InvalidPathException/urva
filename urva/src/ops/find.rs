@@ -11,6 +11,7 @@ crate::ops::builder!(
     FindOptions,
     Vec<Doc<E>>,
     [sort, skip, limit: i64],
+    {},
     |collection, filter, options| {
         Ok(collection
             .find(filter?)
@@ -36,5 +37,6 @@ crate::ops::builder!(
     FindOneOptions,
     Option<Doc<E>>,
     [sort, skip],
+    {},
     |collection, filter, options| { Ok(collection.find_one(filter?).with_options(options).await?) }
 );
