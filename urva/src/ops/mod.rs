@@ -1,6 +1,7 @@
 pub mod count;
 pub mod delete;
 pub mod find;
+pub mod find_and_modify;
 pub mod save;
 pub mod update;
 
@@ -95,6 +96,12 @@ macro_rules! setter {
     (limit: $ty:ty) => {
         pub fn limit(mut self, limit: $ty) -> Self {
             self.options.limit = Some(limit);
+            self
+        }
+    };
+    (return_document) => {
+        pub fn return_document(mut self, which: mongodb::options::ReturnDocument) -> Self {
+            self.options.return_document = Some(which);
             self
         }
     };

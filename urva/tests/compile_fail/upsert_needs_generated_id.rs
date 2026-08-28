@@ -13,7 +13,15 @@ async fn go(notes: Store<Note>) -> Result<()> {
         .update_one(n::text.eq("x"), n::text.set("y"))
         .upsert()
         .await?;
+    notes
+        .find_one_and_update(n::_id.eq("a"), n::text.set("y"))
+        .upsert()
+        .await?;
     notes.update_by_id("a", n::text.set("y")).upsert().await?;
+    notes
+        .find_one_and_update_by_id("a", n::text.set("y"))
+        .upsert()
+        .await?;
     Ok(())
 }
 

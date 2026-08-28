@@ -209,3 +209,59 @@ async fn upserts_seed_the_version_field() {
 
     t.drop().await;
 }
+
+#[tokio::test]
+async fn find_and_modify_verbs() {
+    let Some(t) = TestDb::connect("write_find_and_modify").await else {
+        return;
+    };
+    let store: Store<Order> = t.db.store();
+    let a = store.insert(order("open", 1)).await.unwrap();
+    store.insert(order("open", 2)).await.unwrap();
+
+    let before = store
+        .find_one_and_update(o::status.eq("open"), o::status.set("claimed"))
+        .sort(o::total.desc())
+        .await
+        .unwrap()
+        .expect("matched");
+    assert_eq!((before.status.as_str(), before.total), ("open", 2));
+
+    let after = store
+        .find_one_and_update_by_id(a.id(), o::total.inc(10))
+        .return_document(ReturnDocument::After)
+        .await
+        .unwrap()
+        .expect("matched");
+    assert_eq!((after.id(), after.total), (a.id(), 11));
+
+    let created = store
+        .find_one_and_update(
+            o::status.eq("missing"),
+            o::status.set("created").and(o::total.set_on_insert(0)),
+        )
+        .upsert()
+        .return_document(ReturnDocument::After)
+        .await
+        .unwrap()
+        .expect("upserted");
+    assert_eq!((created.status.as_str(), created.total), ("created", 0));
+    assert_eq!(created.version().value(), 1, "the upsert seeded the lock");
+
+    let gone = store
+        .find_one_and_delete(o::status.eq("claimed"))
+        .await
+        .unwrap()
+        .expect("matched");
+    assert_eq!(gone.total, 2);
+    assert!(store.find_by_id(*gone.id()).await.unwrap().is_none());
+    assert!(
+        store
+            .find_one_and_delete(o::status.eq("claimed"))
+            .await
+            .unwrap()
+            .is_none()
+    );
+
+    t.drop().await;
+}

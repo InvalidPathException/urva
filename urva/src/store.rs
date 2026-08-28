@@ -7,6 +7,7 @@ use crate::ops::ById;
 use crate::ops::count::{CountBuilder, EstimatedCountBuilder};
 use crate::ops::delete::{DeleteManyBuilder, DeleteOneBuilder};
 use crate::ops::find::{FindBuilder, FindOneBuilder};
+use crate::ops::find_and_modify::{FindOneAndDeleteBuilder, FindOneAndUpdateBuilder};
 use crate::ops::update::{UpdateManyBuilder, UpdateOneBuilder};
 use crate::update::Update;
 
@@ -61,6 +62,26 @@ impl<E: Entity> Store<E> {
 
     pub fn update_many(&self, filter: Filter<E>, update: Update<E>) -> UpdateManyBuilder<E> {
         UpdateManyBuilder::new(self.collection.clone(), filter, update)
+    }
+
+    pub fn find_one_and_update(
+        &self,
+        filter: Filter<E>,
+        update: Update<E>,
+    ) -> FindOneAndUpdateBuilder<E> {
+        FindOneAndUpdateBuilder::new(self.collection.clone(), filter, update)
+    }
+
+    pub fn find_one_and_update_by_id(
+        &self,
+        id: impl FieldValue<E::Id>,
+        update: Update<E>,
+    ) -> FindOneAndUpdateBuilder<E, ById> {
+        FindOneAndUpdateBuilder::new(self.collection.clone(), id_filter(id), update)
+    }
+
+    pub fn find_one_and_delete(&self, filter: Filter<E>) -> FindOneAndDeleteBuilder<E> {
+        FindOneAndDeleteBuilder::new(self.collection.clone(), filter)
     }
 
     pub fn delete_one(&self, filter: Filter<E>) -> DeleteOneBuilder<E> {
