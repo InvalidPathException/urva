@@ -25,8 +25,7 @@ pub trait Versioned: Entity<Lock = Version> {}
 
 #[diagnostic::on_unimplemented(
     message = "`{Self}` is versioned, so whole-document replacement does not exist for it",
-    label = "a whole-document replace would bypass the lock and rewrite the stored version verbatim",
-    note = "use `save`, or `store.raw()` for an intentional unchecked replacement"
+    label = "whole-document replacement bypasses the version lock"
 )]
 pub trait Unversioned: Entity<Lock = ()> {}
 

@@ -23,7 +23,10 @@ pub use filter::{FieldValue, Filter, all, any, text};
 pub use ops::count::{CountBuilder, EstimatedCountBuilder};
 pub use ops::delete::{DeleteManyBuilder, DeleteOneBuilder};
 pub use ops::find::{FindBuilder, FindOneBuilder};
-pub use ops::find_and_modify::{FindOneAndDeleteBuilder, FindOneAndUpdateBuilder};
+pub use ops::find_and_modify::{
+    FindOneAndDeleteBuilder, FindOneAndReplaceBuilder, FindOneAndUpdateBuilder,
+};
+pub use ops::replace::ReplaceOneBuilder;
 pub use ops::save::InsertBuilder;
 pub use ops::update::{UpdateManyBuilder, UpdateOneBuilder};
 pub use ops::{ByFilter, ById};

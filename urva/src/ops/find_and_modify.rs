@@ -1,5 +1,7 @@
 use mongodb::bson::Document;
-use mongodb::options::{FindOneAndDeleteOptions, FindOneAndUpdateOptions};
+use mongodb::options::{
+    FindOneAndDeleteOptions, FindOneAndReplaceOptions, FindOneAndUpdateOptions,
+};
 
 use crate::Result;
 use crate::update::Update;
@@ -31,4 +33,18 @@ crate::ops::builder!(
     }
 );
 
+crate::ops::builder!(
+    FindOneAndReplaceBuilder, FindOneAndReplaceOptions, Option<crate::Doc<E>>, [sort, return_document],
+    { replacement: Result<Document> = (entity: &E) => mongodb::bson::to_document(entity).map_err(Into::into) },
+    |collection, filter, options| {
+        let found = collection
+            .clone_with_type::<Document>()
+            .find_one_and_replace(filter?, replacement?)
+            .with_options(options)
+            .await?;
+        Ok(found.map(mongodb::bson::from_document).transpose()?)
+    }
+);
+
 crate::ops::upsert_setter!(FindOneAndUpdateBuilder);
+crate::ops::upsert_setter!(FindOneAndReplaceBuilder);

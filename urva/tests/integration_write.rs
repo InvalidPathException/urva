@@ -265,3 +265,67 @@ async fn find_and_modify_verbs() {
 
     t.drop().await;
 }
+
+#[tokio::test]
+async fn replacement_on_unversioned_entities() {
+    let Some(t) = TestDb::connect("write_replace").await else {
+        return;
+    };
+    let notes: Store<Note> = t.db.store();
+    use note_fields as n;
+
+    let before = notes
+        .insert_with_id("a".to_string(), Note { text: "one".into() })
+        .await
+        .unwrap();
+    let res = notes
+        .replace_one(n::_id.eq("a"), &Note { text: "two".into() })
+        .await
+        .unwrap();
+    assert_eq!(res.modified_count, 1);
+    assert_eq!(notes.find_by_id("a").await.unwrap().unwrap().text, "two");
+
+    let replaced = notes
+        .find_one_and_replace(
+            n::text.eq("two"),
+            &Note {
+                text: "three".into(),
+            },
+        )
+        .await
+        .unwrap()
+        .expect("matched");
+    assert_eq!(
+        (replaced.id(), replaced.text.as_str()),
+        (before.id(), "two")
+    );
+
+    let after = notes
+        .find_one_and_replace_by_id(
+            "b",
+            &Note {
+                text: "four".into(),
+            },
+        )
+        .upsert()
+        .return_document(ReturnDocument::After)
+        .await
+        .unwrap()
+        .expect("upserted");
+    assert_eq!((after.id().as_str(), after.text.as_str()), ("b", "four"));
+
+    let res = notes
+        .replace_by_id(
+            "c",
+            &Note {
+                text: "five".into(),
+            },
+        )
+        .upsert()
+        .await
+        .unwrap();
+    assert!(res.upserted_id.is_some());
+    assert_eq!(notes.count_documents(Filter::empty()).await.unwrap(), 3);
+
+    t.drop().await;
+}

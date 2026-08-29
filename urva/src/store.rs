@@ -1,13 +1,16 @@
 use mongodb::{Collection, Database};
 
 use crate::doc::Doc;
-use crate::entity::Entity;
+use crate::entity::{Entity, Unversioned};
 use crate::filter::{FieldValue, Filter};
 use crate::ops::ById;
 use crate::ops::count::{CountBuilder, EstimatedCountBuilder};
 use crate::ops::delete::{DeleteManyBuilder, DeleteOneBuilder};
 use crate::ops::find::{FindBuilder, FindOneBuilder};
-use crate::ops::find_and_modify::{FindOneAndDeleteBuilder, FindOneAndUpdateBuilder};
+use crate::ops::find_and_modify::{
+    FindOneAndDeleteBuilder, FindOneAndReplaceBuilder, FindOneAndUpdateBuilder,
+};
+use crate::ops::replace::ReplaceOneBuilder;
 use crate::ops::update::{UpdateManyBuilder, UpdateOneBuilder};
 use crate::update::Update;
 
@@ -82,6 +85,42 @@ impl<E: Entity> Store<E> {
 
     pub fn find_one_and_delete(&self, filter: Filter<E>) -> FindOneAndDeleteBuilder<E> {
         FindOneAndDeleteBuilder::new(self.collection.clone(), filter)
+    }
+
+    pub fn find_one_and_replace(&self, filter: Filter<E>, entity: &E) -> FindOneAndReplaceBuilder<E>
+    where
+        E: Unversioned,
+    {
+        FindOneAndReplaceBuilder::new(self.collection.clone(), filter, entity)
+    }
+
+    pub fn find_one_and_replace_by_id(
+        &self,
+        id: impl FieldValue<E::Id>,
+        entity: &E,
+    ) -> FindOneAndReplaceBuilder<E, ById>
+    where
+        E: Unversioned,
+    {
+        FindOneAndReplaceBuilder::new(self.collection.clone(), id_filter(id), entity)
+    }
+
+    pub fn replace_one(&self, filter: Filter<E>, entity: &E) -> ReplaceOneBuilder<E>
+    where
+        E: Unversioned,
+    {
+        ReplaceOneBuilder::new(self.collection.clone(), filter, entity)
+    }
+
+    pub fn replace_by_id(
+        &self,
+        id: impl FieldValue<E::Id>,
+        entity: &E,
+    ) -> ReplaceOneBuilder<E, ById>
+    where
+        E: Unversioned,
+    {
+        ReplaceOneBuilder::new(self.collection.clone(), id_filter(id), entity)
     }
 
     pub fn delete_one(&self, filter: Filter<E>) -> DeleteOneBuilder<E> {

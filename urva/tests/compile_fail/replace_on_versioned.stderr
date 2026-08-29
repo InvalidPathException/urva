@@ -1,0 +1,19 @@
+error[E0277]: `Order` is versioned, so whole-document replacement does not exist for it
+  --> tests/compile_fail/replace_on_versioned.rs:12:12
+   |
+12 |     orders.replace_one(o::status.eq("open"), order).await?;
+   |            ^^^^^^^^^^^ whole-document replacement bypasses the version lock
+   |
+help: the trait `Unversioned` is not implemented for `Order`
+  --> tests/compile_fail/replace_on_versioned.rs:5:1
+   |
+ 5 | pub struct Order {
+   | ^^^^^^^^^^^^^^^^
+note: required by a bound in `urva::Store::<E>::replace_one`
+  --> src/store.rs
+   |
+   |     pub fn replace_one(&self, filter: Filter<E>, entity: &E) -> ReplaceOneBuilder<E>
+   |            ----------- required by a bound in this associated function
+   |     where
+   |         E: Unversioned,
+   |            ^^^^^^^^^^^ required by this bound in `Store::<E>::replace_one`
