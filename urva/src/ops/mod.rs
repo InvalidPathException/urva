@@ -2,6 +2,7 @@ pub mod count;
 pub mod delete;
 pub mod find;
 pub mod find_and_modify;
+pub mod partial;
 pub mod replace;
 pub mod save;
 pub mod update;

@@ -26,8 +26,9 @@ pub use ops::find::{FindBuilder, FindOneBuilder};
 pub use ops::find_and_modify::{
     FindOneAndDeleteBuilder, FindOneAndReplaceBuilder, FindOneAndUpdateBuilder,
 };
+pub use ops::partial::{Partial, PartialFailure, Summary};
 pub use ops::replace::ReplaceOneBuilder;
-pub use ops::save::{DeleteBuilder, InsertBuilder, SaveBuilder};
+pub use ops::save::{DeleteBuilder, InsertBuilder, InsertManyBuilder, SaveBuilder};
 pub use ops::update::{UpdateManyBuilder, UpdateOneBuilder};
 pub use ops::{ByFilter, ById};
 pub use sort::Sort;

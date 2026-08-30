@@ -119,10 +119,7 @@ async fn adversarial_values_read_back_through_filters() {
         .collect();
     bodies.push(sample("", i64::MIN, Vec::new()));
     bodies.push(sample("max", i64::MAX, vec![String::new()]));
-    let mut docs = Vec::new();
-    for body in bodies {
-        docs.push(store.insert(body).await.unwrap());
-    }
+    let docs = store.insert_many(bodies).await.unwrap();
 
     for doc in &docs {
         let found = store.find(s::tag.eq(doc.tag.clone())).await.unwrap();
@@ -293,9 +290,7 @@ async fn filter_fuzz_matches_in_memory_model() {
             tag: FUZZ_TAGS[rng.below(4) as usize].to_string(),
         })
         .collect();
-    for doc in &docs {
-        store.insert(doc.clone()).await.unwrap();
-    }
+    store.insert_many(docs.iter().cloned()).await.unwrap();
 
     for trial in 0..60 {
         let node = gen_node(&mut rng, 2);
@@ -486,6 +481,111 @@ async fn update_composition_fuzz_agrees_with_the_server() {
     assert!(
         ok > 0 && ours > 0 && theirs > 0,
         "every class was exercised"
+    );
+
+    t.drop().await;
+}
+
+#[derive(Entity, Serialize, Deserialize, Debug, Clone)]
+#[entity(collection = "slots", versioned)]
+pub struct Slot {
+    pub key: i64,
+    pub total: i64,
+}
+
+fn slot(key: i64) -> Slot {
+    Slot { key, total: 0 }
+}
+
+async fn unique_key_index(store: &Store<Slot>) {
+    store
+        .raw()
+        .create_index(
+            mongodb::IndexModel::builder()
+                .keys(mongodb::bson::doc! { "key": 1 })
+                .options(
+                    mongodb::options::IndexOptions::builder()
+                        .unique(true)
+                        .build(),
+                )
+                .build(),
+        )
+        .await
+        .unwrap();
+}
+
+const BATCH_BOUNDARY: usize = 100_000;
+
+fn indices<T>(entries: &[(usize, T)]) -> Vec<usize> {
+    entries.iter().map(|(i, _)| *i).collect()
+}
+
+fn dup_positions(total: usize) -> Vec<usize> {
+    (0..total).filter(|i| i % 25_000 == 7).collect()
+}
+
+#[tokio::test]
+async fn insert_many_failure_indices_are_global_across_driver_batches() {
+    const TOTAL: usize = BATCH_BOUNDARY + 20_000;
+    let Some(t) = TestDb::connect("review_insert_many_batches").await else {
+        return;
+    };
+    let store: Store<Slot> = t.db.store();
+    unique_key_index(&store).await;
+    let seeds = dup_positions(TOTAL).into_iter().map(|i| slot(i as i64));
+    store.insert_many(seeds).await.unwrap();
+
+    let failure = store
+        .insert_many((0..TOTAL).map(|i| slot(i as i64)))
+        .ordered(false)
+        .partial()
+        .await
+        .expect_err("collisions");
+    assert!(failure.error.is_duplicate_key(), "{:?}", failure.error);
+    assert_eq!(
+        indices(&failure.inserted),
+        (0..TOTAL).filter(|i| i % 25_000 != 7).collect::<Vec<_>>(),
+        "unordered: inserted = complement, global indices"
+    );
+    assert_eq!(indices(&failure.rejected), dup_positions(TOTAL));
+    for (i, doc) in &failure.inserted {
+        assert_eq!(doc.key, *i as i64, "inserted doc at {i} is the queued body");
+    }
+    for (i, body) in &failure.rejected {
+        assert_eq!(
+            body.key, *i as i64,
+            "rejected body at {i} is the queued body"
+        );
+    }
+    assert_eq!(
+        store.count_documents(Filter::empty()).await.unwrap() as usize,
+        TOTAL
+    );
+
+    t.db.drop().await.unwrap();
+    unique_key_index(&store).await;
+    let first_dup = BATCH_BOUNDARY + 7;
+    store.insert(slot(first_dup as i64)).await.unwrap();
+    let failure = store
+        .insert_many((0..TOTAL).map(|i| slot(i as i64)))
+        .ordered(true)
+        .partial()
+        .await
+        .expect_err("collision");
+    assert!(failure.error.is_duplicate_key(), "{:?}", failure.error);
+    assert_eq!(
+        indices(&failure.inserted),
+        (0..first_dup).collect::<Vec<_>>(),
+        "ordered: everything before the collision landed"
+    );
+    assert_eq!(
+        indices(&failure.rejected),
+        (first_dup..TOTAL).collect::<Vec<_>>(),
+        "ordered: the collision and everything after it came back"
+    );
+    assert_eq!(
+        store.count_documents(Filter::empty()).await.unwrap() as usize,
+        first_dup + 1
     );
 
     t.drop().await;

@@ -27,14 +27,15 @@ fn order(tenant: i64, status: &str, millis: i64, total: i64) -> Order {
 }
 
 async fn seed(store: &Store<Order>) {
-    for body in [
-        order(1, "open", 1_000, 10),
-        order(1, "open", 2_000, 20),
-        order(1, "packed", 3_000, 30),
-        order(2, "open", 4_000, 40),
-    ] {
-        store.insert(body).await.expect("seed");
-    }
+    store
+        .insert_many([
+            order(1, "open", 1_000, 10),
+            order(1, "open", 2_000, 20),
+            order(1, "packed", 3_000, 30),
+            order(2, "open", 4_000, 40),
+        ])
+        .await
+        .expect("seed");
 }
 
 #[tokio::test]

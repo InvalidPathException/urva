@@ -580,3 +580,53 @@ async fn unversioned_save_and_delete_are_unchecked() {
 
     t.drop().await;
 }
+
+#[tokio::test]
+async fn insert_many_returns_docs_and_partial_failure() {
+    let Some(t) = TestDb::connect("insert_many").await else {
+        return;
+    };
+    let store: Store<Order> = t.db.store();
+
+    let docs = store
+        .insert_many([order("a", 1), order("b", 2)])
+        .await
+        .unwrap();
+    assert_eq!(docs.len(), 2);
+    assert_eq!(docs[0].status, "a");
+    assert_eq!(docs[1].status, "b");
+    assert_ne!(docs[0].id(), docs[1].id());
+    assert!(docs.iter().all(|d| d.version().value() == 1));
+
+    let failure = store
+        .insert_many_with_ids([
+            (ObjectId::new(), order("c", 3)),
+            (*docs[0].id(), order("dup", 4)),
+            (ObjectId::new(), order("e", 5)),
+        ])
+        .partial()
+        .await
+        .expect_err("duplicate key");
+    assert!(failure.error.is_duplicate_key(), "{:?}", failure.error);
+
+    let inserted: Vec<usize> = failure.inserted.iter().map(|(i, _)| *i).collect();
+    assert_eq!(inserted, [0], "ordered: only the doc before the failure");
+    assert_eq!(failure.inserted[0].1.status, "c");
+    assert_eq!(failure.inserted[0].1.version().value(), 1);
+
+    let rejected: Vec<usize> = failure.rejected.iter().map(|(i, _)| *i).collect();
+    assert_eq!(rejected, [1, 2], "the duplicate and everything after it");
+    assert_eq!(failure.rejected[0].1.status, "dup");
+    assert_eq!(failure.rejected[1].1.status, "e");
+    assert!(failure.unknown.is_empty());
+
+    let plain = store
+        .insert_many_with_ids([(*docs[1].id(), order("dup", 6))])
+        .await
+        .expect_err("duplicate key");
+    assert!(plain.is_duplicate_key(), "{plain:?}");
+
+    assert_eq!(store.count_documents(Filter::empty()).await.unwrap(), 3);
+
+    t.drop().await;
+}

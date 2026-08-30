@@ -3,11 +3,15 @@ use std::future::IntoFuture;
 use futures_util::future::BoxFuture;
 use mongodb::Collection;
 use mongodb::bson::{Bson, Document, doc};
-use mongodb::options::{DeleteOptions, InsertOneOptions, ReplaceOptions};
+use mongodb::error::ErrorKind;
+use mongodb::options::{DeleteOptions, InsertManyOptions, InsertOneOptions, ReplaceOptions};
 
 use crate::doc::{Doc, Lock, NewId};
 use crate::entity::Entity;
 use crate::filter::Filter;
+use crate::ops::partial::{
+    BulkClass, Partial, PartialFailure, Summary, classify_bulk_failure, indexed, nothing_sent,
+};
 use crate::store::Store;
 use crate::{Error, Result};
 
@@ -70,6 +74,108 @@ macro_rules! entity_builder {
 entity_builder!(InsertBuilder, InsertOneOptions, Doc<E>, {});
 entity_builder!(SaveBuilder, ReplaceOptions, &'e mut Doc<E>, { extra: Option<Filter<E>> });
 entity_builder!(DeleteBuilder, DeleteOptions, &'e Doc<E>, {});
+
+#[must_use = "builders do nothing until awaited"]
+pub struct InsertManyBuilder<E: Entity, R = Summary> {
+    collection: Collection<Doc<E>>,
+    docs: Vec<Doc<E>>,
+    options: InsertManyOptions,
+    _marker: ::std::marker::PhantomData<fn() -> R>,
+}
+
+impl<E: Entity> InsertManyBuilder<E> {
+    pub(crate) fn new(collection: Collection<Doc<E>>, docs: Vec<Doc<E>>) -> Self {
+        InsertManyBuilder {
+            collection,
+            docs,
+            options: InsertManyOptions::default(),
+            _marker: ::std::marker::PhantomData,
+        }
+    }
+
+    pub fn partial(self) -> InsertManyBuilder<E, Partial> {
+        InsertManyBuilder {
+            collection: self.collection,
+            docs: self.docs,
+            options: self.options,
+            _marker: ::std::marker::PhantomData,
+        }
+    }
+}
+
+impl<E: Entity, R> InsertManyBuilder<E, R> {
+    pub fn with_options(mut self, options: InsertManyOptions) -> Self {
+        self.options = options;
+        self
+    }
+
+    pub fn ordered(mut self, ordered: bool) -> Self {
+        self.options.ordered = Some(ordered);
+        self
+    }
+}
+
+impl<E: Entity> IntoFuture for InsertManyBuilder<E, Summary> {
+    type Output = Result<Vec<Doc<E>>>;
+    type IntoFuture = BoxFuture<'static, Self::Output>;
+
+    fn into_future(self) -> Self::IntoFuture {
+        let InsertManyBuilder {
+            collection,
+            docs,
+            options,
+            ..
+        } = self;
+        Box::pin(async move {
+            collection.insert_many(&docs).with_options(options).await?;
+            Ok(docs)
+        })
+    }
+}
+
+impl<E: Entity> IntoFuture for InsertManyBuilder<E, Partial> {
+    type Output = Result<Vec<Doc<E>>, PartialFailure<E>>;
+    type IntoFuture = BoxFuture<'static, Self::Output>;
+
+    fn into_future(self) -> Self::IntoFuture {
+        let InsertManyBuilder {
+            collection,
+            docs,
+            options,
+            ..
+        } = self;
+        Box::pin(async move {
+            let ordered = options.ordered.unwrap_or(true);
+            match collection.insert_many(&docs).with_options(options).await {
+                Ok(_) => Ok(docs),
+                Err(error) => {
+                    let applied = match &*error.kind {
+                        ErrorKind::InsertMany(e) => {
+                            let indices: Vec<usize> =
+                                e.write_errors.iter().flatten().map(|we| we.index).collect();
+                            match classify_bulk_failure(
+                                ordered,
+                                docs.len(),
+                                &indices,
+                                std::error::Error::source(&error).is_some(),
+                            ) {
+                                BulkClass::PerOp { applied } => Some(applied),
+                                BulkClass::Opaque => None,
+                            }
+                        }
+                        _ if nothing_sent(&error) => Some(Vec::new()),
+                        _ => None,
+                    };
+                    Err(PartialFailure::split(
+                        error.into(),
+                        indexed(docs),
+                        applied.as_deref(),
+                    ))
+                }
+            }
+        })
+    }
+}
 
 impl<E: Entity> IntoFuture for InsertBuilder<'_, E> {
     type Output = Result<Doc<E>>;
@@ -158,6 +264,26 @@ impl<E: Entity> Store<E> {
 
     pub fn insert_with_id(&self, id: E::Id, body: E) -> InsertBuilder<'static, E> {
         InsertBuilder::new(self.raw().clone(), prepare(id, body))
+    }
+
+    pub fn insert_many(&self, bodies: impl IntoIterator<Item = E>) -> InsertManyBuilder<E>
+    where
+        E::Id: NewId,
+    {
+        self.insert_many_with_ids(bodies.into_iter().map(|body| (E::Id::new_id(), body)))
+    }
+
+    pub fn insert_many_with_ids(
+        &self,
+        entries: impl IntoIterator<Item = (E::Id, E)>,
+    ) -> InsertManyBuilder<E> {
+        InsertManyBuilder::new(
+            self.raw().clone(),
+            entries
+                .into_iter()
+                .map(|(id, body)| prepare(id, body))
+                .collect(),
+        )
     }
 
     pub fn save<'e>(&self, doc: &'e mut Doc<E>) -> SaveBuilder<'e, E> {
