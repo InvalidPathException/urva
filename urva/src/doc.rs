@@ -36,6 +36,10 @@ impl<E: Entity> Doc<E> {
         (self.id, self.body)
     }
 
+    pub(crate) fn encode_id(&self) -> crate::Result<Bson> {
+        Ok(to_bson(&self.id)?)
+    }
+
     pub(crate) fn to_stored(&self) -> crate::Result<Document> {
         let mut stored = to_document(&self.body)?;
         stored.insert("_id", to_bson(&self.id)?);

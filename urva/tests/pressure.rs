@@ -1,7 +1,71 @@
 mod common;
 
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU32, Ordering};
+
 use common::TestDb;
 use urva::prelude::*;
+
+#[derive(Entity, Serialize, Deserialize, Debug, Clone)]
+#[entity(collection = "counters", versioned)]
+pub struct Counter {
+    pub total: i64,
+}
+
+#[tokio::test]
+async fn save_race_counter_reaches_exact_total() {
+    const TASKS: usize = 16;
+    const INCREMENTS: usize = 25;
+
+    let Some(t) = TestDb::connect("pressure_save_race").await else {
+        return;
+    };
+    let store: Store<Counter> = t.db.store();
+    let id = *store.insert(Counter { total: 0 }).await.unwrap().id();
+
+    let conflicts = Arc::new(AtomicU32::new(0));
+    let mut tasks = Vec::new();
+    for _ in 0..TASKS {
+        let store = store.clone();
+        let conflicts = conflicts.clone();
+        tasks.push(tokio::spawn(async move {
+            for _ in 0..INCREMENTS {
+                let mut attempts = 0u32;
+                loop {
+                    let mut current = store.find_by_id(id).await.unwrap().expect("counter exists");
+                    current.total += 1;
+                    match store.save(&mut current).await {
+                        Ok(()) => break,
+                        Err(Error::VersionConflict { .. }) => {
+                            conflicts.fetch_add(1, Ordering::SeqCst);
+                            attempts += 1;
+                            assert!(attempts < 10_000, "retry loop did not converge");
+                        }
+                        Err(other) => panic!("unexpected save error: {other:?}"),
+                    }
+                }
+            }
+        }));
+    }
+    for task in tasks {
+        task.await.unwrap();
+    }
+
+    let after = store.find_by_id(id).await.unwrap().unwrap();
+    assert_eq!(after.total, (TASKS * INCREMENTS) as i64, "no lost update");
+    assert_eq!(
+        after.version().value(),
+        (TASKS * INCREMENTS) as i64 + 1,
+        "version advanced by exactly 1 per successful save"
+    );
+    let conflicts = conflicts.load(Ordering::SeqCst);
+    assert!(
+        conflicts >= 1,
+        "contention was real (conflicts: {conflicts})"
+    );
+
+    t.drop().await;
+}
 
 #[derive(Entity, Serialize, Deserialize, Debug, Clone, PartialEq)]
 #[entity(collection = "adversarial")]

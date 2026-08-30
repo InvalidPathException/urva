@@ -9,6 +9,7 @@ help: the trait `Unversioned` is not implemented for `Order`
    |
  5 | pub struct Order {
    | ^^^^^^^^^^^^^^^^
+   = note: use `save`, or `store.raw()` for an unchecked replacement
 note: required by a bound in `urva::Store::<E>::replace_one`
   --> src/store.rs
    |

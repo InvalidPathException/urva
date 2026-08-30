@@ -329,3 +329,254 @@ async fn replacement_on_unversioned_entities() {
 
     t.drop().await;
 }
+
+#[tokio::test]
+async fn interleaved_saves_yield_version_conflict() {
+    let Some(t) = TestDb::connect("race").await else {
+        return;
+    };
+    let store: Store<Order> = t.db.store();
+
+    let doc = store.insert(order("open", 10)).await.unwrap();
+
+    let mut first = store.find_by_id(doc.id()).await.unwrap().unwrap();
+    let mut second = store.find_by_id(doc.id()).await.unwrap().unwrap();
+
+    first.status = "packed".into();
+    store.save(&mut first).await.unwrap();
+    assert_eq!(first.version().value(), 2);
+
+    second.status = "cancelled".into();
+    let conflict = store.save(&mut second).await;
+    assert!(
+        matches!(conflict, Err(Error::VersionConflict { collection, .. }) if collection == "orders"),
+        "the loser of the race gets VersionConflict: {conflict:?}"
+    );
+    assert_eq!(
+        second.version().value(),
+        1,
+        "a refused save does not advance"
+    );
+
+    let mut fresh = store.find_by_id(second.id()).await.unwrap().unwrap();
+    fresh.status = "cancelled".into();
+    store.save(&mut fresh).await.unwrap();
+    assert_eq!(fresh.version().value(), 3);
+
+    t.drop().await;
+}
+
+#[tokio::test]
+async fn deletes_honor_the_lock() {
+    let Some(t) = TestDb::connect("delete").await else {
+        return;
+    };
+    let store: Store<Order> = t.db.store();
+
+    let mut doc = store.insert(order("open", 10)).await.unwrap();
+    let stale = doc.clone();
+
+    doc.total = 11;
+    store.save(&mut doc).await.unwrap();
+
+    assert!(matches!(
+        store.delete(&stale).await,
+        Err(Error::VersionConflict { .. })
+    ));
+    assert_eq!(store.count_documents(Filter::empty()).await.unwrap(), 1);
+
+    let before = doc.clone();
+    store.delete(&doc).await.unwrap();
+    assert_eq!(store.count_documents(Filter::empty()).await.unwrap(), 0);
+    assert_eq!(doc, before, "delete leaves the wrapper unchanged");
+
+    let again = store
+        .insert_with_id(*doc.id(), doc.body.clone())
+        .await
+        .unwrap();
+    assert_eq!(again.id(), doc.id());
+    assert_eq!(
+        again.version().value(),
+        1,
+        "re-insertion starts the lock over"
+    );
+
+    t.drop().await;
+}
+
+#[tokio::test]
+async fn save_if_adds_a_condition_to_the_lock() {
+    let Some(t) = TestDb::connect("save_if").await else {
+        return;
+    };
+    let store: Store<Order> = t.db.store();
+
+    let mut doc = store.insert(order("open", 5)).await.unwrap();
+    doc.total = 6;
+    store.save_if(&mut doc, o::status.eq("open")).await.unwrap();
+    assert_eq!(doc.version().value(), 2);
+
+    doc.total = 7;
+    assert!(matches!(
+        store.save_if(&mut doc, o::status.eq("packed")).await,
+        Err(Error::ConditionFailed { .. })
+    ));
+    assert_eq!(doc.version().value(), 2, "a refused save does not advance");
+
+    let mut stale = store.find_by_id(doc.id()).await.unwrap().unwrap();
+    doc.total = 8;
+    store.save(&mut doc).await.unwrap();
+    stale.total = 99;
+    let miss = store.save_if(&mut stale, o::status.eq("open")).await;
+    assert!(
+        matches!(miss, Err(Error::ConditionFailed { collection, .. }) if collection == "orders"),
+        "a stale version under save_if is ConditionFailed, not VersionConflict: {miss:?}"
+    );
+    let read = store.find_by_id(doc.id()).await.unwrap().unwrap();
+    assert_eq!((read.total, read.version()), (8, doc.version()));
+
+    t.drop().await;
+}
+
+#[tokio::test]
+async fn save_options_pass_through_but_cannot_upsert_past_the_lock() {
+    let Some(t) = TestDb::connect("write_protocol_options").await else {
+        return;
+    };
+    let store: Store<Order> = t.db.store();
+    let mut doc = store.insert(order("open", 1)).await.unwrap();
+    let mut stale = doc.clone();
+    store.save(&mut doc).await.unwrap();
+
+    let mut options = mongodb::options::ReplaceOptions::default();
+    options.upsert = Some(true);
+    let err = store
+        .save(&mut stale)
+        .with_options(options)
+        .await
+        .unwrap_err();
+    assert!(matches!(err, Error::VersionConflict { .. }), "{err:?}");
+    assert_eq!(store.count_documents(Filter::empty()).await.unwrap(), 1);
+
+    let mut options = mongodb::options::InsertOneOptions::default();
+    options.comment = Some("probe".into());
+    store
+        .insert(order("second", 2))
+        .with_options(options)
+        .await
+        .unwrap();
+    assert_eq!(store.count_documents(Filter::empty()).await.unwrap(), 2);
+
+    t.drop().await;
+}
+
+#[derive(Entity, Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[entity(collection = "flat", versioned)]
+pub struct Flat {
+    pub name: String,
+    #[serde(flatten)]
+    pub extra: std::collections::HashMap<String, mongodb::bson::Bson>,
+}
+
+#[tokio::test]
+async fn store_owned_fields_win_over_a_flattened_body() {
+    let Some(t) = TestDb::connect("flatten_lock").await else {
+        return;
+    };
+    let store: Store<Flat> = t.db.store();
+    let foreign = ObjectId::new();
+    let extra = std::collections::HashMap::from([
+        ("_id".to_string(), mongodb::bson::Bson::ObjectId(foreign)),
+        ("version".to_string(), mongodb::bson::Bson::Int64(7)),
+    ]);
+    let mut doc = store
+        .insert(Flat {
+            name: "a".into(),
+            extra: extra.clone(),
+        })
+        .await
+        .unwrap();
+    assert_ne!(*doc.id(), foreign);
+    let raw = store.raw().clone_with_type::<Document>();
+    let stored = raw
+        .find_one(doc! { "_id": doc.id() })
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(stored.get_i64("version").unwrap(), 1);
+    assert!(
+        raw.find_one(doc! { "_id": foreign })
+            .await
+            .unwrap()
+            .is_none()
+    );
+
+    doc.name = "b".into();
+    doc.extra = extra;
+    store.save(&mut doc).await.unwrap();
+    assert_eq!(doc.version().value(), 2);
+    let stored = raw
+        .find_one(doc! { "_id": doc.id() })
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(stored.get_i64("version").unwrap(), 2);
+    assert_eq!(stored.get_str("name").unwrap(), "b");
+    let read = store.find_by_id(doc.id()).await.unwrap().unwrap();
+    assert!(
+        read.extra.is_empty(),
+        "the store's fields never reach the body"
+    );
+
+    t.drop().await;
+}
+
+#[tokio::test]
+async fn unversioned_save_and_delete_are_unchecked() {
+    let Some(t) = TestDb::connect("write_unversioned_save").await else {
+        return;
+    };
+    let store: Store<Note> = t.db.store();
+    use note_fields as n;
+    let mut a = store
+        .insert_with_id("a".to_string(), Note { text: "one".into() })
+        .await
+        .unwrap();
+    let mut stale = store.find_by_id("a").await.unwrap().unwrap();
+
+    a.text = "two".into();
+    store.save(&mut a).await.unwrap();
+    stale.text = "three".into();
+    store.save(&mut stale).await.unwrap();
+    let stored = store.find_by_id("a").await.unwrap().unwrap();
+    assert_eq!(stored.text, "three", "last writer wins without a lock");
+    let raw = store
+        .raw()
+        .clone_with_type::<Document>()
+        .find_one(doc! { "_id": "a" })
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(!raw.contains_key("version"));
+
+    let result = store.save_if(&mut a, n::text.eq("nope")).await;
+    assert!(matches!(result, Err(Error::ConditionFailed { .. })));
+
+    store.delete(&a).await.unwrap();
+    assert!(matches!(
+        store.delete(&stale).await,
+        Err(Error::NotFound {
+            collection: "notes",
+            ..
+        })
+    ));
+    assert!(matches!(
+        store.save(&mut stale).await,
+        Err(Error::NotFound {
+            collection: "notes",
+            ..
+        })
+    ));
+
+    t.drop().await;
+}
