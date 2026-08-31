@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::marker::PhantomData;
 
 pub struct Full;
@@ -56,7 +57,7 @@ impl Ordered for mongodb::bson::oid::ObjectId {}
 impl<T: Ordered> Ordered for Option<T> {}
 
 pub struct Field<E: ?Sized, T: ?Sized, Cap = Full, Enc = Plain> {
-    path: &'static str,
+    path: Cow<'static, str>,
     _marker: PhantomData<Marker<E, T, Cap, Enc>>,
 }
 
@@ -65,21 +66,34 @@ type Marker<E, T, Cap, Enc> = fn() -> (Box<E>, Box<T>, Cap, Enc);
 impl<E: ?Sized, T: ?Sized, Cap, Enc> Field<E, T, Cap, Enc> {
     pub(crate) const fn new(path: &'static str) -> Self {
         Field {
-            path,
+            path: Cow::Borrowed(path),
             _marker: PhantomData,
         }
     }
 
     #[doc(hidden)]
     pub fn path(&self) -> &str {
-        self.path
+        &self.path
+    }
+
+    pub(crate) fn retype<T2: ?Sized, Cap2, Enc2>(self) -> Field<E, T2, Cap2, Enc2> {
+        Field {
+            path: self.path,
+            _marker: PhantomData,
+        }
+    }
+
+    pub(crate) fn push_segment(&mut self, segment: &str) {
+        let path = self.path.to_mut();
+        path.push('.');
+        path.push_str(segment);
     }
 }
 
 impl<E: ?Sized, T: ?Sized, Cap, Enc> Clone for Field<E, T, Cap, Enc> {
     fn clone(&self) -> Self {
         Field {
-            path: self.path,
+            path: self.path.clone(),
             _marker: PhantomData,
         }
     }

@@ -19,7 +19,7 @@ pub use field::{
     ArrayLike, Capability, Field, Filterable, Full, MatchField, MatchOnly, Ordered, Plain,
     Updatable, VersionField,
 };
-pub use filter::{FieldValue, Filter, all, any, text};
+pub use filter::{FieldValue, Filter, Nested, all, any, text};
 pub use ops::count::{CountBuilder, EstimatedCountBuilder};
 pub use ops::delete::{DeleteManyBuilder, DeleteOneBuilder};
 pub use ops::find::{FindBuilder, FindOneBuilder};

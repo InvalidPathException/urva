@@ -3,7 +3,10 @@ use std::marker::PhantomData;
 use mongodb::bson::{Bson, Document, doc, ser};
 use serde::Serialize;
 
-use crate::field::{ArrayLike, Field, Filterable, Ordered, Plain, VersionField};
+use crate::entity::Embedded;
+use crate::field::{
+    ArrayLike, Capability, Field, Filterable, Full, MatchOnly, Ordered, Plain, VersionField,
+};
 use crate::version::Version;
 
 pub(crate) fn encode<T: Serialize>(value: &T) -> Result<Bson, ser::Error> {
@@ -265,6 +268,13 @@ impl<E: ?Sized, A: ArrayLike, C: Filterable> Field<E, A, C> {
     pub fn size(self, len: u32) -> Filter<E> {
         self.filter_op("$size", Ok(Bson::Int64(i64::from(len))))
     }
+
+    pub fn elem_match(self, filter: Filter<A::Elem>) -> Filter<E>
+    where
+        A::Elem: Embedded,
+    {
+        elem_match_filter(self.path(), filter)
+    }
 }
 
 fn prefix_pattern(prefix: &str) -> String {
@@ -276,6 +286,47 @@ fn prefix_pattern(prefix: &str) -> String {
         pattern.push(ch);
     }
     pattern
+}
+
+fn elem_match_filter<E: ?Sized, M: ?Sized>(path: &str, filter: Filter<M>) -> Filter<E> {
+    Filter {
+        doc: doc! { path: { "$elemMatch": filter.doc } },
+        deferred_error: filter.deferred_error,
+        _marker: PhantomData,
+    }
+}
+
+pub trait Nested<C: Capability> {
+    type Elem;
+    type Out: Capability;
+}
+
+impl<M: Embedded, C: Capability> Nested<C> for M {
+    type Elem = M;
+    type Out = C;
+}
+
+impl<M: Embedded, C: Capability> Nested<C> for Option<M> {
+    type Elem = M;
+    type Out = C;
+}
+
+impl<M: Embedded, C: Filterable> Nested<C> for Vec<M> {
+    type Elem = M;
+    type Out = MatchOnly;
+}
+
+impl<M: Embedded, C: Filterable> Nested<C> for Option<Vec<M>> {
+    type Elem = M;
+    type Out = MatchOnly;
+}
+
+impl<E: ?Sized, N: Nested<C>, C: Capability> Field<E, N, C> {
+    pub fn dot<T, X>(self, inner: Field<N::Elem, T, Full, X>) -> Field<E, T, N::Out, X> {
+        let mut out = self.retype::<T, N::Out, X>();
+        out.push_segment(inner.path());
+        out
+    }
 }
 
 impl<E: ?Sized> VersionField<E> {

@@ -27,6 +27,7 @@ pub struct Shipping {
 }
 
 use order_fields as o;
+use shipping_fields as sf;
 
 #[test]
 fn comparison_operators() {
@@ -326,6 +327,51 @@ fn unencodable_values_defer_the_error() {
     assert!(combined.into_document().is_err());
     let combined = all([Filter::empty(), holder_fields::map.eq(bad)]);
     assert!(combined.into_document().is_err());
+}
+
+#[test]
+fn nested_paths() {
+    assert_eq!(
+        o::shipping
+            .dot(sf::city)
+            .eq("Vienna")
+            .into_document()
+            .unwrap(),
+        doc! { "shipping.cityName": { "$eq": "Vienna" } }
+    );
+    assert_eq!(
+        o::home.dot(sf::city).eq("Vienna").into_document().unwrap(),
+        doc! { "home.cityName": { "$eq": "Vienna" } }
+    );
+    assert_eq!(
+        o::stops.dot(sf::zip).eq("1010").into_document().unwrap(),
+        doc! { "stops.zip": { "$eq": "1010" } }
+    );
+    assert_eq!(
+        o::extra_stops
+            .dot(sf::city)
+            .eq("Vienna")
+            .into_document()
+            .unwrap(),
+        doc! { "extra_stops.cityName": { "$eq": "Vienna" } }
+    );
+    assert_eq!(
+        o::stops
+            .elem_match(sf::city.eq("Vienna"))
+            .into_document()
+            .unwrap(),
+        doc! { "stops": { "$elemMatch": { "cityName": { "$eq": "Vienna" } } } }
+    );
+    assert_eq!(
+        o::extra_stops
+            .elem_match(all([sf::city.eq("Vienna"), sf::zip.eq("1010")]))
+            .into_document()
+            .unwrap(),
+        doc! { "extra_stops": { "$elemMatch": { "$and": [
+            { "cityName": { "$eq": "Vienna" } },
+            { "zip": { "$eq": "1010" } },
+        ] } } }
+    );
 }
 
 #[test]
