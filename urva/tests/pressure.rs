@@ -590,3 +590,119 @@ async fn insert_many_failure_indices_are_global_across_driver_batches() {
 
     t.drop().await;
 }
+
+#[derive(Entity, Serialize, Deserialize, Debug, Clone)]
+#[entity(collection = "bags")]
+pub struct Bag {
+    pub k: i64,
+    pub items: Vec<Bin>,
+}
+
+#[derive(Embedded, Serialize, Deserialize, Debug, Clone)]
+pub struct Bin {
+    pub q: i64,
+    pub s: String,
+}
+
+use bag_fields as bg;
+use bin_fields as it;
+
+const S: [&str; 3] = ["x", "y", "z"];
+
+#[derive(Debug, Clone)]
+enum BagNode {
+    AnyQGt(i64),
+    AnySEq(&'static str),
+    ElemBoth(i64, &'static str),
+    ElemEither(i64, &'static str),
+    Size(usize),
+    All(Vec<BagNode>),
+    Any(Vec<BagNode>),
+}
+
+fn gen_bag_node(rng: &mut Lcg, depth: u32) -> BagNode {
+    if depth == 0 || rng.below(3) == 0 {
+        match rng.below(5) {
+            0 => BagNode::AnyQGt(rng.below(10) as i64),
+            1 => BagNode::AnySEq(S[rng.below(3) as usize]),
+            2 => BagNode::ElemBoth(rng.below(10) as i64, S[rng.below(3) as usize]),
+            3 => BagNode::ElemEither(rng.below(10) as i64, S[rng.below(3) as usize]),
+            _ => BagNode::Size(rng.below(4) as usize),
+        }
+    } else {
+        let children: Vec<BagNode> = (0..2 + rng.below(2))
+            .map(|_| gen_bag_node(rng, depth - 1))
+            .collect();
+        if rng.below(2) == 0 {
+            BagNode::All(children)
+        } else {
+            BagNode::Any(children)
+        }
+    }
+}
+
+fn bag_filter(node: &BagNode) -> Filter<Bag> {
+    match node {
+        BagNode::AnyQGt(v) => bg::items.dot(it::q).gt(*v),
+        BagNode::AnySEq(s) => bg::items.dot(it::s).eq(*s),
+        BagNode::ElemBoth(v, s) => bg::items.elem_match(all([it::q.gt(*v), it::s.eq(*s)])),
+        BagNode::ElemEither(v, s) => bg::items.elem_match(any([it::q.gt(*v), it::s.eq(*s)])),
+        BagNode::Size(n) => bg::items.size(*n as u32),
+        BagNode::All(children) => all(children.iter().map(bag_filter)),
+        BagNode::Any(children) => any(children.iter().map(bag_filter)),
+    }
+}
+
+fn bag_eval(node: &BagNode, d: &Bag) -> bool {
+    match node {
+        BagNode::AnyQGt(v) => d.items.iter().any(|i| i.q > *v),
+        BagNode::AnySEq(s) => d.items.iter().any(|i| i.s == *s),
+        BagNode::ElemBoth(v, s) => d.items.iter().any(|i| i.q > *v && i.s == *s),
+        BagNode::ElemEither(v, s) => d.items.iter().any(|i| i.q > *v || i.s == *s),
+        BagNode::Size(n) => d.items.len() == *n,
+        BagNode::All(children) => children.iter().all(|n| bag_eval(n, d)),
+        BagNode::Any(children) => children.iter().any(|n| bag_eval(n, d)),
+    }
+}
+
+#[tokio::test]
+async fn array_filter_fuzz_matches_in_memory_model() {
+    let Some(t) = TestDb::connect("review_array_fuzz").await else {
+        return;
+    };
+    let store: Store<Bag> = t.db.store();
+    let mut rng = Lcg(0xabcdef);
+    let docs: Vec<Bag> = (0..150)
+        .map(|k| Bag {
+            k,
+            items: (0..rng.below(4))
+                .map(|_| Bin {
+                    q: rng.below(10) as i64,
+                    s: S[rng.below(3) as usize].to_string(),
+                })
+                .collect(),
+        })
+        .collect();
+    store.insert_many(docs.iter().cloned()).await.unwrap();
+
+    for trial in 0..80 {
+        let node = gen_bag_node(&mut rng, 2);
+        let mut expected: Vec<i64> = docs
+            .iter()
+            .filter(|d| bag_eval(&node, d))
+            .map(|d| d.k)
+            .collect();
+        expected.sort_unstable();
+        let mut actual: Vec<i64> = store
+            .find(bag_filter(&node))
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|d| d.k)
+            .collect();
+        actual.sort_unstable();
+        assert_eq!(actual, expected, "trial {trial}: {node:?}");
+    }
+
+    t.drop().await;
+}

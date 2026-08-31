@@ -8,9 +8,11 @@ use crate::update::Update;
 
 crate::ops::builder!(
     FindOneAndUpdateBuilder, FindOneAndUpdateOptions, Option<crate::Doc<E>>, [sort, return_document],
-    { update: Result<Document> = (update: Update<E>) => update.into_document() },
+    { update: Result<(Document, Vec<Document>)> = (update: Update<E>) => update.into_parts() },
     |collection, filter, options| {
-        let mut update = update?;
+        let (mut update, element_filters) = update?;
+        let mut options = options;
+        crate::ops::merge_array_filters(&mut options.array_filters, element_filters);
         crate::update::seed_on_upsert::<E>(&mut update, options.upsert);
         Ok(collection
             .find_one_and_update(filter?, update)

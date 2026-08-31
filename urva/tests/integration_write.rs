@@ -630,3 +630,119 @@ async fn insert_many_returns_docs_and_partial_failure() {
 
     t.drop().await;
 }
+
+#[derive(Entity, Serialize, Deserialize, Debug)]
+#[entity(collection = "carts")]
+pub struct Cart {
+    pub items: Vec<CartItem>,
+}
+
+#[derive(Embedded, Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct CartItem {
+    pub sku: String,
+    pub qty: i64,
+}
+
+use cart_fields as c;
+use cart_item_fields as ci;
+
+fn cart_item(sku: &str, qty: i64) -> CartItem {
+    CartItem {
+        sku: sku.to_string(),
+        qty,
+    }
+}
+
+#[tokio::test]
+async fn positional_updates_apply_on_the_server() {
+    let Some(t) = TestDb::connect("positional").await else {
+        return;
+    };
+    let carts: Store<Cart> = t.db.store();
+    let cart = carts
+        .insert(Cart {
+            items: vec![cart_item("a", 1), cart_item("b", 5), cart_item("c", 9)],
+        })
+        .await
+        .unwrap();
+    let id = *cart.id();
+
+    carts
+        .update_one(c::_id.eq(id), c::items.each().dot(ci::qty).inc(100))
+        .await
+        .unwrap();
+    let read = carts.find_one(c::_id.eq(id)).await.unwrap().unwrap();
+    assert_eq!(
+        read.items.iter().map(|i| i.qty).collect::<Vec<_>>(),
+        vec![101, 105, 109]
+    );
+
+    carts
+        .update_one(
+            all([c::_id.eq(id), c::items.dot(ci::sku).eq("b")]),
+            c::items.matched().dot(ci::qty).set(0),
+        )
+        .await
+        .unwrap();
+    let read = carts.find_one(c::_id.eq(id)).await.unwrap().unwrap();
+    assert_eq!(read.items[1].qty, 0);
+
+    let err = carts
+        .update_one(c::_id.eq(id), c::items.matched().dot(ci::qty).set(1))
+        .await
+        .unwrap_err();
+    assert!(matches!(err, Error::Driver(_)), "{err:?}");
+
+    let big = element_filter("big", ci::qty.gte(100));
+    carts
+        .update_one(c::_id.eq(id), c::items.filtered(&big).dot(ci::qty).set(-1))
+        .await
+        .unwrap();
+    let read = carts.find_one(c::_id.eq(id)).await.unwrap().unwrap();
+    assert_eq!(
+        read.items.iter().map(|i| i.qty).collect::<Vec<_>>(),
+        vec![-1, 0, -1]
+    );
+
+    t.drop().await;
+}
+
+#[tokio::test]
+async fn positional_updates_through_other_verbs() {
+    let Some(t) = TestDb::connect("positional_verbs").await else {
+        return;
+    };
+    let carts: Store<Cart> = t.db.store();
+    let cart = carts
+        .insert(Cart {
+            items: vec![cart_item("a", 1), cart_item("b", 5)],
+        })
+        .await
+        .unwrap();
+    let id = *cart.id();
+
+    let low = element_filter("low", ci::qty.lt(3));
+    let after = carts
+        .find_one_and_update(c::_id.eq(id), c::items.filtered(&low).dot(ci::qty).set(3))
+        .return_document(ReturnDocument::After)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        after.items.iter().map(|i| i.qty).collect::<Vec<_>>(),
+        vec![3, 5]
+    );
+
+    let high = element_filter("high", ci::qty.gte(5));
+    carts
+        .update_many(c::_id.eq(id), c::items.filtered(&high).dot(ci::qty).inc(1))
+        .await
+        .unwrap();
+    let read = carts.find_one(c::_id.eq(id)).await.unwrap().unwrap();
+    assert_eq!(
+        read.items.iter().map(|i| i.qty).collect::<Vec<_>>(),
+        vec![3, 6]
+    );
+
+    t.drop().await;
+}

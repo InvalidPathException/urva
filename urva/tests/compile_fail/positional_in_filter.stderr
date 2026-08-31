@@ -1,0 +1,18 @@
+error[E0599]: the method `eq` exists for struct `urva::Field<Order, i64, Positional>`, but its trait bounds were not satisfied
+  --> tests/compile_fail/positional_in_filter.rs:15:54
+   |
+15 |     order_fields::items.each().dot(item_fields::qty).eq(5)
+   |                                                      ^^ method cannot be called on `urva::Field<Order, i64, Positional>` due to unsatisfied trait bounds
+   |
+  ::: src/field.rs
+   |
+   | pub struct Positional;
+   | --------------------- doesn't satisfy `Positional: Filterable`
+...
+   | pub struct Field<E: ?Sized, T: ?Sized, Cap = Full, Enc = Plain> {
+   | --------------------------------------------------------------- doesn't satisfy `urva::Field<Order, i64, Positional>: Iterator`
+   |
+   = note: the following trait bounds were not satisfied:
+           `Positional: Filterable`
+           `urva::Field<Order, i64, Positional>: Iterator`
+           which is required by `&mut urva::Field<Order, i64, Positional>: Iterator`

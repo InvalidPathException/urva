@@ -11,6 +11,15 @@ pub struct ByFilter;
 
 pub struct ById;
 
+pub(crate) fn merge_array_filters(
+    options: &mut Option<Vec<mongodb::bson::Document>>,
+    element_filters: Vec<mongodb::bson::Document>,
+) {
+    if !element_filters.is_empty() {
+        options.get_or_insert_with(Vec::new).extend(element_filters);
+    }
+}
+
 macro_rules! builder {
     (
         $name:ident, $options:ty, $output:ty, [$($setter:ident $(: $setter_ty:ty)?),* $(,)?],
@@ -110,3 +119,24 @@ macro_rules! setter {
 }
 
 pub(crate) use {builder, setter, upsert_setter};
+
+#[cfg(test)]
+mod tests {
+    use mongodb::bson::doc;
+
+    #[test]
+    fn array_filters_append_to_the_options() {
+        let mut options = Some(vec![doc! { "hot.qty": { "$gt": 5 } }]);
+        super::merge_array_filters(&mut options, vec![doc! { "cold.qty": 1 }]);
+        assert_eq!(
+            options.unwrap(),
+            vec![doc! { "hot.qty": { "$gt": 5 } }, doc! { "cold.qty": 1 }]
+        );
+
+        let mut options = None;
+        super::merge_array_filters(&mut options, Vec::new());
+        assert!(options.is_none());
+        super::merge_array_filters(&mut options, vec![doc! { "hot.qty": 1 }]);
+        assert_eq!(options.unwrap(), vec![doc! { "hot.qty": 1 }]);
+    }
+}

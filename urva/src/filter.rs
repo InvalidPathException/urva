@@ -48,6 +48,10 @@ impl<E: ?Sized> Filter<E> {
         }
     }
 
+    pub(crate) fn raw_parts(filter: Filter<E>) -> (Document, Option<crate::Error>) {
+        (filter.doc, filter.deferred_error)
+    }
+
     pub(crate) fn field_op(path: &str, op: &str, value: Result<Bson, ser::Error>) -> Self {
         match value {
             Ok(value) => Filter::raw(doc! { path: { op: value } }),

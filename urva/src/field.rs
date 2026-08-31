@@ -1,18 +1,25 @@
 use std::borrow::Cow;
 use std::marker::PhantomData;
 
+use mongodb::bson::Document;
+
 pub struct Full;
 
 pub struct MatchOnly;
+
+pub struct Positional;
 
 pub struct Plain;
 
 pub type MatchField<E, T> = Field<E, T, MatchOnly>;
 
+pub type UpdateField<E, T> = Field<E, T, Positional>;
+
 mod sealed {
     pub trait Sealed {}
     impl Sealed for super::Full {}
     impl Sealed for super::MatchOnly {}
+    impl Sealed for super::Positional {}
     impl<T> Sealed for Vec<T> {}
     impl<T> Sealed for Option<Vec<T>> {}
 }
@@ -20,6 +27,7 @@ mod sealed {
 pub trait Capability: sealed::Sealed {}
 impl Capability for Full {}
 impl Capability for MatchOnly {}
+impl Capability for Positional {}
 
 pub trait Filterable: Capability {}
 impl Filterable for Full {}
@@ -27,6 +35,7 @@ impl Filterable for MatchOnly {}
 
 pub trait Updatable: Capability {}
 impl Updatable for Full {}
+impl Updatable for Positional {}
 
 pub trait ArrayLike: sealed::Sealed {
     type Elem;
@@ -58,6 +67,8 @@ impl<T: Ordered> Ordered for Option<T> {}
 
 pub struct Field<E: ?Sized, T: ?Sized, Cap = Full, Enc = Plain> {
     path: Cow<'static, str>,
+    array_filters: Vec<(String, Document)>,
+    deferred_error: Option<crate::Error>,
     _marker: PhantomData<Marker<E, T, Cap, Enc>>,
 }
 
@@ -67,6 +78,8 @@ impl<E: ?Sized, T: ?Sized, Cap, Enc> Field<E, T, Cap, Enc> {
     pub(crate) const fn new(path: &'static str) -> Self {
         Field {
             path: Cow::Borrowed(path),
+            array_filters: Vec::new(),
+            deferred_error: None,
             _marker: PhantomData,
         }
     }
@@ -79,6 +92,8 @@ impl<E: ?Sized, T: ?Sized, Cap, Enc> Field<E, T, Cap, Enc> {
     pub(crate) fn retype<T2: ?Sized, Cap2, Enc2>(self) -> Field<E, T2, Cap2, Enc2> {
         Field {
             path: self.path,
+            array_filters: self.array_filters,
+            deferred_error: self.deferred_error,
             _marker: PhantomData,
         }
     }
@@ -88,12 +103,36 @@ impl<E: ?Sized, T: ?Sized, Cap, Enc> Field<E, T, Cap, Enc> {
         path.push('.');
         path.push_str(segment);
     }
+
+    pub(crate) fn into_positional_parts(
+        self,
+    ) -> (
+        Cow<'static, str>,
+        Vec<(String, Document)>,
+        Option<crate::Error>,
+    ) {
+        (self.path, self.array_filters, self.deferred_error)
+    }
+
+    pub(crate) fn add_element_filter(
+        &mut self,
+        name: String,
+        doc: Document,
+        error: Option<crate::Error>,
+    ) {
+        self.array_filters.push((name, doc));
+        if self.deferred_error.is_none() {
+            self.deferred_error = error;
+        }
+    }
 }
 
 impl<E: ?Sized, T: ?Sized, Cap, Enc> Clone for Field<E, T, Cap, Enc> {
     fn clone(&self) -> Self {
         Field {
             path: self.path.clone(),
+            array_filters: self.array_filters.clone(),
+            deferred_error: self.deferred_error.clone(),
             _marker: PhantomData,
         }
     }
