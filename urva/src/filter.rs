@@ -5,7 +5,8 @@ use serde::Serialize;
 
 use crate::entity::Embedded;
 use crate::field::{
-    ArrayLike, Capability, Field, Filterable, Full, MatchOnly, Ordered, Plain, VersionField,
+    ArrayLike, Capability, Encode, Encoded, Field, Filterable, Full, MatchOnly, OrderedIn, Plain,
+    VersionField,
 };
 use crate::version::Version;
 
@@ -129,7 +130,7 @@ pub fn text<E: ?Sized>(query: impl Into<String>) -> Filter<E> {
 
 #[diagnostic::on_unimplemented(
     message = "`{Self}` is not an accepted value for a field of type `{T}`",
-    label = "expected the field's type, or its inner type for `Option` fields"
+    label = "expected the field's type, or its inner type for `Option` fields; a field with a custom serde writer takes exactly its declared type"
 )]
 pub trait FieldValue<T: ?Sized, Enc = Plain> {
     #[doc(hidden)]
@@ -172,6 +173,30 @@ impl FieldValue<Option<String>> for &str {
     }
 }
 
+impl<T, X: Encode<T>> FieldValue<T, Encoded<X>> for T {
+    fn encode_value(&self) -> Result<Bson, ser::Error> {
+        X::encode(self)
+    }
+}
+
+impl<T, X: Encode<T>> FieldValue<T, Encoded<X>> for &T {
+    fn encode_value(&self) -> Result<Bson, ser::Error> {
+        X::encode(*self)
+    }
+}
+
+impl<X: Encode<String>> FieldValue<String, Encoded<X>> for &str {
+    fn encode_value(&self) -> Result<Bson, ser::Error> {
+        X::encode(&(*self).to_string())
+    }
+}
+
+impl<X: Encode<Option<String>>> FieldValue<Option<String>, Encoded<X>> for &str {
+    fn encode_value(&self) -> Result<Bson, ser::Error> {
+        X::encode(&Some((*self).to_string()))
+    }
+}
+
 impl<E: ?Sized, T: ?Sized, C: Filterable, X> Field<E, T, C, X> {
     pub(crate) fn filter_op(self, op: &str, value: Result<Bson, ser::Error>) -> Filter<E> {
         Filter::field_op(self.path(), op, value)
@@ -208,7 +233,7 @@ impl<E: ?Sized, T, C: Filterable, X> Field<E, Option<T>, C, X> {
     }
 }
 
-impl<E: ?Sized, T: Ordered, C: Filterable, X> Field<E, T, C, X> {
+impl<E: ?Sized, T, C: Filterable, X: OrderedIn<T>> Field<E, T, C, X> {
     pub fn gt(self, value: impl FieldValue<T, X>) -> Filter<E> {
         self.filter_op("$gt", value.encode_value())
     }

@@ -10,6 +10,7 @@ pub struct FieldModel {
     pub unstorable: Option<&'static str>,
     pub fully_skipped: bool,
     pub flattened: bool,
+    pub custom_writer_path: Option<syn::ExprPath>,
 }
 
 impl FieldModel {
@@ -197,6 +198,7 @@ fn field_model(
         unstorable,
         fully_skipped,
         flattened,
+        custom_writer_path: serde.serialize_with().cloned(),
     })
 }
 

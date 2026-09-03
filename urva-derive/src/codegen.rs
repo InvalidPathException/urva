@@ -4,7 +4,7 @@ use syn::Ident;
 use syn::ext::IdentExt;
 
 use crate::case::to_snake;
-use crate::entity::{EntityModel, StructModel, token_type};
+use crate::entity::{EntityModel, FieldModel, StructModel, token_type};
 
 pub fn entity_tokens(model: &EntityModel) -> TokenStream {
     let base = &model.base;
@@ -64,6 +64,14 @@ pub fn embedded_tokens(base: &StructModel) -> TokenStream {
     }
 }
 
+fn encoder_ident(base: &StructModel, field: &FieldModel) -> Ident {
+    format_ident!(
+        "__urva_enc_{}_{}",
+        to_snake(&base.ident.unraw().to_string()),
+        field.ident.unraw()
+    )
+}
+
 fn fields_module(
     base: &StructModel,
     fields_mod: &Ident,
@@ -71,6 +79,7 @@ fn fields_module(
 ) -> TokenStream {
     let ident = &base.ident;
     let vis = &base.vis;
+    let mut encoders = TokenStream::new();
     let mut consts: Vec<TokenStream> = base
         .fields
         .iter()
@@ -78,10 +87,35 @@ fn fields_module(
         .map(|field| {
             let fident = &field.ident;
             let stored = &field.stored_name;
-            let ty = token_type(&field.ty);
-            quote! {
-                pub const #fident: ::urva::Field<#ident, #ty> =
-                    ::urva::__private::new_field(#stored);
+            match &field.custom_writer_path {
+                Some(writer) => {
+                    let ty = &field.ty;
+                    let encoder = encoder_ident(base, field);
+                    encoders.extend(quote! {
+                        #[doc(hidden)]
+                        #[allow(non_camel_case_types)]
+                        #vis struct #encoder;
+                        #[automatically_derived]
+                        impl ::urva::Encode<#ty> for #encoder {
+                            fn encode(
+                                value: &#ty,
+                            ) -> ::core::result::Result<::urva::bson::Bson, ::urva::bson::ser::Error> {
+                                #writer(value, ::urva::bson::Serializer::new())
+                            }
+                        }
+                    });
+                    quote! {
+                        pub const #fident: ::urva::Field<#ident, #ty, ::urva::Full, ::urva::Encoded<#encoder>> =
+                            ::urva::__private::new_field(#stored);
+                    }
+                }
+                None => {
+                    let ty = token_type(&field.ty);
+                    quote! {
+                        pub const #fident: ::urva::Field<#ident, #ty> =
+                            ::urva::__private::new_field(#stored);
+                    }
+                }
             }
         })
         .collect();
@@ -105,5 +139,6 @@ fn fields_module(
         impl #fields_mod {
             #(#consts)*
         }
+        #encoders
     }
 }

@@ -1,3 +1,4 @@
+use mongodb::bson::{Bson, doc};
 use urva::prelude::*;
 use urva::{Field, MatchField, VersionField};
 
@@ -186,6 +187,103 @@ pub struct Receipt {
 fn a_custom_reader_alone_keeps_the_token() {
     assert_eq!(receipt_fields::total.path(), "total");
     token::<Receipt, i64>(receipt_fields::total);
+}
+
+mod cents_as_string {
+    pub fn serialize<S: serde::Serializer>(cents: &i64, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(&cents.to_string())
+    }
+    pub fn deserialize<'de, D: serde::Deserializer<'de>>(d: D) -> Result<i64, D::Error> {
+        let s = <String as serde::Deserialize>::deserialize(d)?;
+        s.parse().map_err(serde::de::Error::custom)
+    }
+}
+
+fn upper<S: serde::Serializer>(label: &Option<String>, serializer: S) -> Result<S::Ok, S::Error> {
+    match label {
+        Some(l) => serializer.serialize_str(&l.to_uppercase()),
+        None => serializer.serialize_none(),
+    }
+}
+
+#[derive(Embedded, Serialize, Deserialize, Debug)]
+pub struct Money {
+    #[serde(with = "self::cents_as_string")]
+    pub cents: i64,
+}
+
+#[derive(Entity, Serialize, Deserialize, Debug)]
+#[entity(collection = "invoices")]
+pub struct Invoice {
+    #[serde(with = "cents_as_string")]
+    pub total: i64,
+    #[serde(serialize_with = "upper", rename = "lbl")]
+    pub label: Option<String>,
+    pub price: Money,
+}
+
+use invoice_fields as inv;
+use money_fields as mo;
+
+#[test]
+fn encoded_fields_get_tokens_that_encode_through_the_writer() {
+    let stored = mongodb::bson::to_document(&Invoice {
+        total: 1250,
+        label: Some("net".into()),
+        price: Money { cents: 7 },
+    })
+    .unwrap();
+    assert_eq!(
+        inv::total.eq(1250).into_document().unwrap(),
+        doc! { "total": { "$eq": stored.get("total").unwrap() } }
+    );
+    assert_eq!(
+        inv::total.gte(1250).into_document().unwrap(),
+        doc! { "total": { "$gte": "1250" } }
+    );
+    assert_eq!(
+        inv::total.is_in([1, 2]).into_document().unwrap(),
+        doc! { "total": { "$in": ["1", "2"] } }
+    );
+    assert_eq!(
+        inv::total.set(3).into_parts().unwrap().0,
+        doc! { "$set": { "total": "3" } }
+    );
+    assert_eq!(
+        inv::label
+            .eq(Some("net".to_string()))
+            .into_document()
+            .unwrap(),
+        doc! { "lbl": { "$eq": stored.get("lbl").unwrap() } }
+    );
+    assert_eq!(
+        inv::label.eq(None).into_document().unwrap(),
+        doc! { "lbl": { "$eq": Bson::Null } }
+    );
+    assert_eq!(
+        inv::price.dot(mo::cents).eq(7).into_document().unwrap(),
+        doc! { "price.cents": { "$eq": "7" } }
+    );
+    assert_eq!(
+        inv::total.desc().then(inv::label.asc()).into_document(),
+        doc! { "total": -1, "lbl": 1 }
+    );
+}
+
+#[test]
+fn encoded_fields_expose_range_and_numeric_operators() {
+    assert_eq!(
+        inv::total.gt(5).into_document().unwrap(),
+        doc! { "total": { "$gt": "5" } }
+    );
+    assert_eq!(
+        inv::total.inc(5).into_parts().unwrap().0,
+        doc! { "$inc": { "total": "5" } }
+    );
+    assert_eq!(
+        inv::price.dot(mo::cents).max(9).into_parts().unwrap().0,
+        doc! { "$max": { "price.cents": "9" } }
+    );
 }
 
 #[test]

@@ -5,7 +5,8 @@ use serde::Serialize;
 
 use crate::doc::Lock;
 use crate::field::{
-    ArrayLike, Field, Full, Ordered, Plain, Positional, Updatable, UpdateField, VersionField,
+    ArrayLike, Encoded, Field, Full, OrderedIn, Plain, Positional, Updatable, UpdateField,
+    VersionField,
 };
 use crate::filter::{FieldValue, Filter};
 
@@ -165,6 +166,14 @@ impl Numeric for f64 {}
 impl Numeric for mongodb::bson::Decimal128 {}
 impl<T: Numeric> Numeric for Option<T> {}
 
+#[diagnostic::on_unimplemented(
+    message = "`{T}` has no arithmetic operators",
+    label = "the field type is not numeric; implement `urva::Numeric` for `{T}` if its BSON form is"
+)]
+pub trait NumericIn<T: ?Sized> {}
+impl<T: Numeric + ?Sized> NumericIn<T> for Plain {}
+impl<T: ?Sized, X: ?Sized> NumericIn<T> for Encoded<X> {}
+
 impl<E: ?Sized, T: ?Sized, C: Updatable, X> Field<E, T, C, X> {
     fn update_op(self, op: &str, value: Result<Bson, ser::Error>) -> Update<E> {
         let (path, array_filters, deferred_error) = self.into_positional_parts();
@@ -198,7 +207,7 @@ impl<E: ?Sized, T, C: Updatable, X> Field<E, T, C, X> {
     }
 }
 
-impl<E: ?Sized, T: Numeric, C: Updatable, X> Field<E, T, C, X> {
+impl<E: ?Sized, T, C: Updatable, X: NumericIn<T>> Field<E, T, C, X> {
     pub fn inc(self, by: impl FieldValue<T, X>) -> Update<E> {
         self.update_op("$inc", by.encode_value())
     }
@@ -209,7 +218,7 @@ impl<E: ?Sized, T: Numeric, C: Updatable, X> Field<E, T, C, X> {
     }
 }
 
-impl<E: ?Sized, T: Ordered, C: Updatable, X> Field<E, T, C, X> {
+impl<E: ?Sized, T, C: Updatable, X: OrderedIn<T>> Field<E, T, C, X> {
     pub fn min(self, value: impl FieldValue<T, X>) -> Update<E> {
         self.update_op("$min", value.encode_value())
     }

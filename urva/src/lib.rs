@@ -16,8 +16,8 @@ pub use doc::{Doc, Lock, NewId};
 pub use entity::{Embedded, Entity, Unversioned, Versioned};
 pub use error::{Error, Result};
 pub use field::{
-    ArrayLike, Capability, Field, Filterable, Full, MatchField, MatchOnly, Ordered, Plain,
-    Positional, Updatable, UpdateField, VersionField,
+    ArrayLike, Capability, Encode, Encoded, Field, Filterable, Full, MatchField, MatchOnly,
+    Ordered, OrderedIn, Plain, Positional, Updatable, UpdateField, VersionField,
 };
 pub use filter::{FieldValue, Filter, Nested, all, any, text};
 pub use ops::count::{CountBuilder, EstimatedCountBuilder};
@@ -33,7 +33,7 @@ pub use ops::update::{UpdateManyBuilder, UpdateOneBuilder};
 pub use ops::{ByFilter, ById};
 pub use sort::Sort;
 pub use store::{Store, StoreExt};
-pub use update::{ElementFilter, Numeric, Update, apply, element_filter};
+pub use update::{ElementFilter, Numeric, NumericIn, Update, apply, element_filter};
 pub use version::Version;
 
 pub use urva_derive::{Embedded, Entity};

@@ -1,7 +1,7 @@
 use std::borrow::Cow;
 use std::marker::PhantomData;
 
-use mongodb::bson::Document;
+use mongodb::bson::{Bson, Document, ser};
 
 pub struct Full;
 
@@ -10,6 +10,12 @@ pub struct MatchOnly;
 pub struct Positional;
 
 pub struct Plain;
+
+pub struct Encoded<X: ?Sized>(PhantomData<fn() -> Box<X>>);
+
+pub trait Encode<T: ?Sized> {
+    fn encode(value: &T) -> Result<Bson, ser::Error>;
+}
 
 pub type MatchField<E, T> = Field<E, T, MatchOnly>;
 
@@ -64,6 +70,14 @@ impl Ordered for mongodb::bson::DateTime {}
 impl Ordered for mongodb::bson::Decimal128 {}
 impl Ordered for mongodb::bson::oid::ObjectId {}
 impl<T: Ordered> Ordered for Option<T> {}
+
+#[diagnostic::on_unimplemented(
+    message = "`{T}` has no range operators",
+    label = "the field type is not ordered; implement `urva::Ordered` for `{T}` if its BSON form is"
+)]
+pub trait OrderedIn<T: ?Sized> {}
+impl<T: Ordered + ?Sized> OrderedIn<T> for Plain {}
+impl<T: ?Sized, X: ?Sized> OrderedIn<T> for Encoded<X> {}
 
 pub struct Field<E: ?Sized, T: ?Sized, Cap = Full, Enc = Plain> {
     path: Cow<'static, str>,
