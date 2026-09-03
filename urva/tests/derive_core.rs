@@ -50,6 +50,8 @@ fn entity_contract_constants() {
     assert_versioned::<Order>();
     assert_id::<Order, ObjectId>();
     assert_generates_ids::<Order>();
+    assert!(Order::INDEX_SPECS.is_empty());
+    assert!(Order::index_models().is_empty());
 }
 
 fn assert_versioned<E: urva::Versioned>() {}

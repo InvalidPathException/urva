@@ -110,6 +110,12 @@ macro_rules! setter {
             self
         }
     };
+    (hint) => {
+        pub fn hint(mut self, hint: impl crate::index::HintFor<E>) -> Self {
+            self.options.hint = Some(hint.to_hint());
+            self
+        }
+    };
     (return_document) => {
         pub fn return_document(mut self, which: mongodb::options::ReturnDocument) -> Self {
             self.options.return_document = Some(which);

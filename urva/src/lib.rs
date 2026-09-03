@@ -6,6 +6,7 @@ mod entity;
 mod error;
 mod field;
 mod filter;
+mod index;
 mod ops;
 mod sort;
 mod store;
@@ -20,6 +21,7 @@ pub use field::{
     Ordered, OrderedIn, Plain, Positional, Updatable, UpdateField, VersionField,
 };
 pub use filter::{FieldValue, Filter, Nested, all, any, text};
+pub use index::{HintFor, IndexRef};
 pub use ops::count::{CountBuilder, EstimatedCountBuilder};
 pub use ops::delete::{DeleteManyBuilder, DeleteOneBuilder};
 pub use ops::find::{FindBuilder, FindOneBuilder};
@@ -38,12 +40,15 @@ pub use version::Version;
 
 pub use urva_derive::{Embedded, Entity};
 
+#[doc(hidden)]
+pub use index::{CollationSpec, ConstBson, IndexKey, IndexSpec, KeyKind, Weight};
+
 pub mod prelude {
     pub use crate::bson::DateTime;
     pub use crate::bson::oid::ObjectId;
     pub use crate::{
-        Doc, Embedded, Entity, Error, Filter, Result, Sort, Store, StoreExt, Update, Version, all,
-        any, apply, element_filter, text,
+        Doc, Embedded, Entity, Error, Filter, HintFor, Result, Sort, Store, StoreExt, Update,
+        Version, all, any, apply, element_filter, text,
     };
     pub use mongodb::options::ReturnDocument;
     pub use serde::{Deserialize, Serialize};
@@ -61,5 +66,11 @@ pub mod __private {
 
     pub const fn new_version_field<E: ?Sized>(path: &'static str) -> crate::VersionField<E> {
         crate::VersionField::new(path)
+    }
+
+    pub const fn index_ref_from_spec<E: ?Sized>(
+        spec: &'static crate::IndexSpec,
+    ) -> crate::IndexRef<E> {
+        crate::IndexRef::from_spec(spec)
     }
 }

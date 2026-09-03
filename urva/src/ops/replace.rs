@@ -5,7 +5,7 @@ use mongodb::results::UpdateResult;
 use crate::Result;
 
 crate::ops::builder!(
-    ReplaceOneBuilder, ReplaceOptions, UpdateResult, [sort],
+    ReplaceOneBuilder, ReplaceOptions, UpdateResult, [hint, sort],
     { replacement: Result<Document> = (entity: &E) => mongodb::bson::to_document(entity).map_err(Into::into) },
     |collection, filter, options| {
         Ok(collection

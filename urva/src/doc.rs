@@ -226,6 +226,7 @@ mod tests {
         type Id = i64;
         type Lock = Version;
         const VERSION_FIELD: &'static str = "version";
+        const INDEX_SPECS: &'static [&'static crate::IndexSpec] = &[];
     }
 
     #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
@@ -240,6 +241,7 @@ mod tests {
         type Id = String;
         type Lock = ();
         const VERSION_FIELD: &'static str = "version";
+        const INDEX_SPECS: &'static [&'static crate::IndexSpec] = &[];
     }
 
     fn order() -> Order {

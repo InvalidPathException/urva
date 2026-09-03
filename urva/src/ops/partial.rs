@@ -122,6 +122,7 @@ mod tests {
         type Id = i64;
         type Lock = ();
         const VERSION_FIELD: &'static str = "version";
+        const INDEX_SPECS: &'static [&'static crate::IndexSpec] = &[];
     }
 
     fn docs() -> Vec<(usize, crate::Doc<Body>)> {

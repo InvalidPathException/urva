@@ -7,7 +7,7 @@ use crate::Result;
 use crate::update::Update;
 
 crate::ops::builder!(
-    FindOneAndUpdateBuilder, FindOneAndUpdateOptions, Option<crate::Doc<E>>, [sort, return_document],
+    FindOneAndUpdateBuilder, FindOneAndUpdateOptions, Option<crate::Doc<E>>, [sort, return_document, hint],
     { update: Result<(Document, Vec<Document>)> = (update: Update<E>) => update.into_parts() },
     |collection, filter, options| {
         let (mut update, element_filters) = update?;
@@ -25,7 +25,7 @@ crate::ops::builder!(
     FindOneAndDeleteBuilder,
     FindOneAndDeleteOptions,
     Option<crate::Doc<E>>,
-    [sort],
+    [sort, hint],
     {},
     |collection, filter, options| {
         Ok(collection
@@ -36,7 +36,7 @@ crate::ops::builder!(
 );
 
 crate::ops::builder!(
-    FindOneAndReplaceBuilder, FindOneAndReplaceOptions, Option<crate::Doc<E>>, [sort, return_document],
+    FindOneAndReplaceBuilder, FindOneAndReplaceOptions, Option<crate::Doc<E>>, [sort, return_document, hint],
     { replacement: Result<Document> = (entity: &E) => mongodb::bson::to_document(entity).map_err(Into::into) },
     |collection, filter, options| {
         let found = collection

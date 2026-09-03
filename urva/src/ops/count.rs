@@ -11,7 +11,7 @@ crate::ops::builder!(
     CountBuilder,
     CountOptions,
     u64,
-    [skip, limit: u64],
+    [hint, skip, limit: u64],
     {},
     |collection, filter, options| {
         Ok(collection

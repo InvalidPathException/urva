@@ -1,7 +1,9 @@
+use mongodb::IndexModel;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 
 use crate::doc::Lock;
+use crate::index::IndexSpec;
 use crate::version::Version;
 
 pub trait Entity:
@@ -15,6 +17,17 @@ pub trait Entity:
 
     #[doc(hidden)]
     const VERSION_FIELD: &'static str;
+
+    #[doc(hidden)]
+    const INDEX_SPECS: &'static [&'static IndexSpec];
+
+    #[doc(hidden)]
+    fn index_models() -> Vec<IndexModel> {
+        Self::INDEX_SPECS
+            .iter()
+            .map(|spec| spec.to_model())
+            .collect()
+    }
 }
 
 #[diagnostic::on_unimplemented(

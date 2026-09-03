@@ -24,7 +24,7 @@ macro_rules! update_builder {
     };
 }
 
-update_builder!(UpdateOneBuilder, update_one, [sort]);
-update_builder!(UpdateManyBuilder, update_many, []);
+update_builder!(UpdateOneBuilder, update_one, [hint, sort]);
+update_builder!(UpdateManyBuilder, update_many, [hint]);
 crate::ops::upsert_setter!(UpdateOneBuilder);
 crate::ops::upsert_setter!(UpdateManyBuilder);

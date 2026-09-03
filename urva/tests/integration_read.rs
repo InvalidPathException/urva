@@ -45,16 +45,34 @@ async fn reads_on_an_empty_collection() {
     };
     let store: Store<Order> = t.db.store();
 
+    let by_id = || mongodb::options::Hint::Name("_id_".to_string());
     assert!(store.find(Filter::empty()).await.unwrap().is_empty());
     assert!(
         store
+            .find(Filter::empty())
+            .hint(by_id())
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    assert!(
+        store
             .find_one(o::status.eq("open"))
+            .hint(by_id())
             .await
             .unwrap()
             .is_none()
     );
     assert!(store.find_by_id(ObjectId::new()).await.unwrap().is_none());
     assert_eq!(store.count_documents(Filter::empty()).await.unwrap(), 0);
+    assert_eq!(
+        store
+            .count_documents(Filter::empty())
+            .hint(by_id())
+            .await
+            .unwrap(),
+        0
+    );
     assert_eq!(store.estimated_document_count().await.unwrap(), 0);
     let mut cursor = store.find(Filter::empty()).stream().await.unwrap();
     assert!(cursor.try_next().await.unwrap().is_none());

@@ -41,6 +41,7 @@ pub fn entity_tokens(model: &EntityModel) -> TokenStream {
             type Id = #id_ty;
             type Lock = #lock;
             const VERSION_FIELD: &'static str = #version_field;
+            const INDEX_SPECS: &'static [&'static ::urva::IndexSpec] = &[];
         }
 
         #[automatically_derived]
