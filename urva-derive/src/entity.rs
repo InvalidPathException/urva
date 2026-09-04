@@ -327,24 +327,46 @@ fn combine_errors(errors: Vec<syn::Error>) -> syn::Result<()> {
 }
 
 fn validate_indexes(model: &EntityModel) -> syn::Result<()> {
+    let field_named_wildcard = model
+        .base
+        .fields
+        .iter()
+        .any(|f| f.ident.unraw() == "wildcard" && f.unstorable.is_none());
     let errors = model
         .indexes
         .iter()
-        .filter_map(|decl| validate_decl(model, decl).err())
+        .filter_map(|decl| validate_decl(model, decl, field_named_wildcard).err())
         .collect();
     combine_errors(errors)
 }
 
-fn validate_decl(model: &EntityModel, decl: &IndexDecl) -> syn::Result<()> {
+fn validate_decl(
+    model: &EntityModel,
+    decl: &IndexDecl,
+    field_named_wildcard: bool,
+) -> syn::Result<()> {
     for key in &decl.keys {
-        if is_id_key(key) {
+        if field_named_wildcard && key.kind == KeyKindDecl::WholeDocWildcard {
+            return Err(syn::Error::new(
+                key.span,
+                "ambiguous key: this struct has a field named `wildcard`. Write `r#wildcard` to index the field, the bare spelling is the whole-document `$**` key",
+            ));
+        }
+    }
+
+    for key in &decl.keys {
+        if key.kind == KeyKindDecl::WholeDocWildcard || is_id_key(key) {
             continue;
         }
         storable_field(model, &key.segments[0], " and cannot be indexed")?;
     }
 
     let path = |key: &KeyDecl| {
-        let mut path = key.segments[0].unraw().to_string();
+        let mut path = key
+            .segments
+            .first()
+            .map(|s| s.unraw().to_string())
+            .unwrap_or_default();
         if key.kind == KeyKindDecl::FieldWildcard {
             path.push_str(".$**");
         }
@@ -352,9 +374,14 @@ fn validate_decl(model: &EntityModel, decl: &IndexDecl) -> syn::Result<()> {
     };
     for (i, key) in decl.keys.iter().enumerate() {
         if decl.keys[..i].iter().any(|prev| path(prev) == path(key)) {
+            let what = if key.kind == KeyKindDecl::WholeDocWildcard {
+                "the whole-document `wildcard` key".to_string()
+            } else {
+                format!("`{}`", path(key))
+            };
             return Err(syn::Error::new(
                 key.span,
-                format!("`{}` appears twice in this index's keys", path(key)),
+                format!("{what} appears twice in this index's keys"),
             ));
         }
     }
@@ -378,6 +405,20 @@ fn validate_decl(model: &EntityModel, decl: &IndexDecl) -> syn::Result<()> {
         return Err(syn::Error::new(
             ttl_span,
             "`ttl` requires an ascending or descending key. Change the key kind, or drop `ttl`",
+        ));
+    }
+
+    let has_2d = decl.keys.iter().any(|k| k.kind == KeyKindDecl::TwoD);
+    if !has_2d
+        && let Some(span) = decl
+            .bits
+            .map(|(_, s)| s)
+            .or(decl.min.map(|(_, s)| s))
+            .or(decl.max.map(|(_, s)| s))
+    {
+        return Err(syn::Error::new(
+            span,
+            "`bits`, `min` and `max` apply to `2d` keys only. Remove them, or make the key `2d`",
         ));
     }
 

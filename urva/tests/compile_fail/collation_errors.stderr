@@ -1,0 +1,17 @@
+error: unknown collation option `caseLevel`. Expected `locale` or `strength`
+ --> tests/compile_fail/collation_errors.rs:5:52
+  |
+5 | #[index(bad_opt, keys(x), collation(locale = "en", caseLevel = true))]
+  |                                                    ^^^^^^^^^
+
+error: collation(...) requires `locale = "..."`
+  --> tests/compile_fail/collation_errors.rs:12:29
+   |
+12 | #[index(no_locale, keys(x), collation(strength = 2))]
+   |                             ^^^^^^^^^
+
+error: collation strength must be between 1 and 5
+  --> tests/compile_fail/collation_errors.rs:19:68
+   |
+19 | #[index(bad_strength, keys(x), collation(locale = "en", strength = 9))]
+   |                                                                    ^

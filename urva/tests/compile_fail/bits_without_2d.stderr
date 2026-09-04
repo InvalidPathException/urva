@@ -1,0 +1,5 @@
+error: `bits`, `min` and `max` apply to `2d` keys only. Remove them, or make the key `2d`
+ --> tests/compile_fail/bits_without_2d.rs:5:24
+  |
+5 | #[index(by_a, keys(a), bits = 26)]
+  |                        ^^^^

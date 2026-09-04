@@ -1,0 +1,5 @@
+error: ambiguous key: this struct has a field named `wildcard`. Write `r#wildcard` to index the field, the bare spelling is the whole-document `$**` key
+ --> tests/compile_fail/wildcard_key_ambiguous.rs:5:26
+  |
+5 | #[index(everything, keys(wildcard))]
+  |                          ^^^^^^^^

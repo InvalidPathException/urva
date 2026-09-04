@@ -1,0 +1,5 @@
+error: `strength` has no effect with the `simple` locale. Remove `strength`, or pick a locale
+ --> tests/compile_fail/collation_simple_strength.rs:5:64
+  |
+5 | #[index(by_a, keys(a), collation(locale = "simple", strength = 2))]
+  |                                                                ^

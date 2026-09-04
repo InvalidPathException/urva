@@ -9,6 +9,7 @@ use urva::{Field, MatchField, VersionField};
 #[index(order_search, keys(title = text, body = text), weights(title = 10))]
 #[index(expiry, keys(expires_at), ttl = 3600)]
 #[index(hidden_probe, keys(total), hidden)]
+#[index(everything, keys(wildcard), wildcard_projection = "{\"title\": 1}")]
 pub struct Order {
     pub tenant_id: ObjectId,
     pub status: String,
@@ -71,7 +72,7 @@ fn entity_contract_constants() {
 #[test]
 fn index_models_render_names_keys_and_options() {
     let models = Order::index_models();
-    assert_eq!(models.len(), 5);
+    assert_eq!(models.len(), 6);
 
     let tenant_recent = models.iter().find(|m| named(m, "tenant_recent")).unwrap();
     assert_eq!(
@@ -120,6 +121,16 @@ fn index_models_render_names_keys_and_options() {
         to_vec(&doc! { "total": 1 }).unwrap()
     );
     assert_eq!(hidden.options.as_ref().unwrap().hidden, Some(true));
+
+    let wildcard = models.iter().find(|m| named(m, "everything")).unwrap();
+    assert_eq!(
+        to_vec(&wildcard.keys).unwrap(),
+        to_vec(&doc! { "$**": 1 }).unwrap()
+    );
+    assert_eq!(
+        wildcard.options.as_ref().unwrap().wildcard_projection,
+        Some(doc! { "title": 1_i64 })
+    );
 }
 
 #[test]
@@ -272,6 +283,7 @@ fn index_idents_matching_emitted_bindings_expand() {
 #[index(closed_by_status, keys(status), partial(status = "closed"))]
 #[index(status_full, keys(status))]
 #[index(status_sparse, keys(status), sparse)]
+#[index(status_de, keys(status), collation(locale = "de", strength = 2))]
 pub struct TwinOrder {
     pub status: String,
 }
@@ -279,12 +291,13 @@ pub struct TwinOrder {
 #[test]
 fn same_key_pattern_twins_compile_and_emit() {
     let models = TwinOrder::index_models();
-    assert_eq!(models.len(), 4);
+    assert_eq!(models.len(), 5);
     for name in [
         "open_by_status",
         "closed_by_status",
         "status_full",
         "status_sparse",
+        "status_de",
     ] {
         let model = models.iter().find(|m| named(m, name)).unwrap();
         assert_eq!(
@@ -294,6 +307,55 @@ fn same_key_pattern_twins_compile_and_emit() {
     }
     let sparse = models.iter().find(|m| named(m, "status_sparse")).unwrap();
     assert_eq!(sparse.options.as_ref().unwrap().sparse, Some(true));
+    let de = models.iter().find(|m| named(m, "status_de")).unwrap();
+    let collation = de.options.as_ref().unwrap().collation.as_ref().unwrap();
+    assert_eq!(collation.locale, "de");
+    assert!(matches!(
+        collation.strength,
+        Some(mongodb::options::CollationStrength::Secondary)
+    ));
+}
+
+#[allow(clippy::duplicated_attributes)]
+#[derive(Entity, Serialize, Deserialize, Debug)]
+#[entity(collection = "wild_twins")]
+#[index(titles_only, keys(wildcard), wildcard_projection = "{\"title\": 1}")]
+#[index(bodies_only, keys(wildcard), wildcard_projection = "{\"body\": 1}")]
+pub struct WildcardTwins {
+    pub title: String,
+    pub body: String,
+}
+
+#[test]
+fn wildcard_twins_differing_in_projection_compile_and_emit() {
+    let models = WildcardTwins::index_models();
+    assert_eq!(models.len(), 2);
+    for name in ["titles_only", "bodies_only"] {
+        let model = models.iter().find(|m| named(m, name)).unwrap();
+        assert_eq!(
+            to_vec(&model.keys).unwrap(),
+            to_vec(&doc! { "$**": 1 }).unwrap()
+        );
+    }
+}
+
+#[derive(Entity, Serialize, Deserialize, Debug)]
+#[entity(collection = "skipped_wildcards")]
+#[index(everything, keys(wildcard))]
+pub struct SkippedWildcardCarrier {
+    #[serde(skip)]
+    pub wildcard: bool,
+    pub a: i64,
+}
+
+#[test]
+fn bare_wildcard_key_is_whole_document_when_the_wildcard_field_is_skipped() {
+    let models = SkippedWildcardCarrier::index_models();
+    let everything = models.iter().find(|m| named(m, "everything")).unwrap();
+    assert_eq!(
+        to_vec(&everything.keys).unwrap(),
+        to_vec(&doc! { "$**": 1 }).unwrap()
+    );
 }
 
 #[allow(clippy::duplicated_attributes)]

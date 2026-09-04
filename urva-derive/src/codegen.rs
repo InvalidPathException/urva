@@ -41,10 +41,8 @@ pub fn entity_tokens(model: &EntityModel) -> syn::Result<TokenStream> {
         let ttl_span = decl.ttl.map(|(_, span)| span);
         decl.keys.iter().filter_map(move |key| {
             let ttl_span = ttl_span?;
-            let field = base
-                .fields
-                .iter()
-                .find(|f| same_ident(&f.ident, &key.segments[0]))?;
+            let first = key.segments.first()?;
+            let field = base.fields.iter().find(|f| same_ident(&f.ident, first))?;
             let leaf_ty = declared_or_encoded(field);
             Some(quote_spanned! {ttl_span=>
                 const _: () = {
@@ -207,6 +205,24 @@ fn index_module_tokens(model: &EntityModel, index_mod: &Ident) -> syn::Result<To
             let stored = stored_path_expr(model, std::slice::from_ref(field), false);
             quote! { ::urva::Weight { field: #stored, weight: #weight } }
         });
+        let collation = option_tokens(decl.collation.as_ref().map(|c| {
+            let locale = &c.locale;
+            let strength = option_tokens(c.strength.map(|s| {
+                let variant = format_ident!("{s}");
+                quote! { ::urva::mongodb::options::CollationStrength::#variant }
+            }));
+            quote! { ::urva::CollationSpec { locale: #locale, strength: #strength } }
+        }));
+        let wildcard_projection = match &decl.wildcard_projection {
+            Some(lit) => {
+                let tree = json_tokens(&parse_json_object(lit, "wildcard_projection")?);
+                quote! { ::core::option::Option::Some(#tree) }
+            }
+            None => quote! { ::core::option::Option::None },
+        };
+        let bits = option_tokens(decl.bits.map(|(b, _)| quote! { #b }));
+        let min = option_tokens(decl.min.map(|(m, _)| quote! { #m }));
+        let max = option_tokens(decl.max.map(|(m, _)| quote! { #m }));
         let ref_ident = &decl.ident;
         let span = ref_ident.span();
         items.extend(quote_spanned! {span=>
@@ -220,7 +236,11 @@ fn index_module_tokens(model: &EntityModel, index_mod: &Ident) -> syn::Result<To
                     ttl_seconds: #ttl,
                     partial: #partial,
                     weights: &[#(#weights),*],
-                    ..::urva::IndexSpec::DEFAULT
+                    collation: #collation,
+                    wildcard_projection: #wildcard_projection,
+                    bits: #bits,
+                    min: #min,
+                    max: #max,
                 };
                 ::urva::__private::index_ref_from_spec(&SPEC)
             };
@@ -333,6 +353,9 @@ fn json_tokens(value: &Json) -> TokenStream {
 }
 
 fn key_path_expr(model: &EntityModel, key: &KeyDecl) -> TokenStream {
+    if key.kind == KeyKindDecl::WholeDocWildcard {
+        return quote! { "$**" };
+    }
     stored_path_expr(model, &key.segments, key.kind == KeyKindDecl::FieldWildcard)
 }
 
@@ -374,6 +397,8 @@ fn key_kind_tokens(kind: KeyKindDecl) -> TokenStream {
         KeyKindDecl::Hashed => quote! { ::urva::KeyKind::Hashed },
         KeyKindDecl::TwoDSphere => quote! { ::urva::KeyKind::TwoDSphere },
         KeyKindDecl::TwoD => quote! { ::urva::KeyKind::TwoD },
-        KeyKindDecl::FieldWildcard => quote! { ::urva::KeyKind::Wildcard },
+        KeyKindDecl::FieldWildcard | KeyKindDecl::WholeDocWildcard => {
+            quote! { ::urva::KeyKind::Wildcard }
+        }
     }
 }

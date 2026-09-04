@@ -16,6 +16,17 @@ pub struct IndexDecl {
     pub ttl: Option<(u64, Span)>,
     pub partial: Option<PartialDecl>,
     pub weights: Vec<(Ident, i32)>,
+    pub collation: Option<CollationDecl>,
+    pub wildcard_projection: Option<LitStr>,
+    pub bits: Option<(u32, Span)>,
+    pub min: Option<(f64, Span)>,
+    pub max: Option<(f64, Span)>,
+}
+
+#[derive(Clone)]
+pub struct CollationDecl {
+    pub locale: String,
+    pub strength: Option<&'static str>,
 }
 
 #[derive(Clone)]
@@ -40,6 +51,7 @@ pub enum KeyKindDecl {
     TwoDSphere,
     TwoD,
     FieldWildcard,
+    WholeDocWildcard,
 }
 
 impl Parse for IndexDecl {
@@ -84,6 +96,11 @@ impl Parse for IndexDecl {
             ttl: None,
             partial: None,
             weights: Vec::new(),
+            collation: None,
+            wildcard_projection: None,
+            bits: None,
+            min: None,
+            max: None,
         };
 
         while !input.is_empty() {
@@ -100,8 +117,15 @@ impl Parse for IndexDecl {
 fn parse_key(input: ParseStream) -> syn::Result<KeyDecl> {
     let field: Ident = input
         .parse()
-        .map_err(|_| syn::Error::new(input.span(), "expected a field name"))?;
+        .map_err(|_| syn::Error::new(input.span(), "expected a field name or `wildcard`"))?;
     let span = field.span();
+    if field == "wildcard" && !input.peek(Token![=]) {
+        return Ok(KeyDecl {
+            segments: Vec::new(),
+            kind: KeyKindDecl::WholeDocWildcard,
+            span,
+        });
+    }
     let kind = if input.peek(Token![=]) {
         input.parse::<Token![=]>()?;
         parse_key_kind(input)?
@@ -237,6 +261,87 @@ fn parse_option(input: ParseStream, decl: &mut IndexDecl) -> syn::Result<()> {
                 ));
             }
         }
+        "collation" => {
+            let content;
+            parenthesized!(content in input);
+            let mut locale: Option<String> = None;
+            let mut strength: Option<(&'static str, Span)> = None;
+            loop {
+                if content.is_empty() {
+                    break;
+                }
+                let key: Ident = content.parse()?;
+                content.parse::<Token![=]>()?;
+                match key.to_string().as_str() {
+                    "locale" => {
+                        let lit: LitStr = content.parse()?;
+                        locale = Some(lit.value());
+                    }
+                    "strength" => {
+                        let lit: syn::LitInt = content.parse()?;
+                        let variant = match lit.base10_digits() {
+                            "1" => "Primary",
+                            "2" => "Secondary",
+                            "3" => "Tertiary",
+                            "4" => "Quaternary",
+                            "5" => "Identical",
+                            _ => {
+                                return Err(syn::Error::new(
+                                    lit.span(),
+                                    "collation strength must be between 1 and 5",
+                                ));
+                            }
+                        };
+                        strength = Some((variant, lit.span()));
+                    }
+                    other => {
+                        return Err(syn::Error::new(
+                            key.span(),
+                            format!(
+                                "unknown collation option `{other}`. Expected `locale` or `strength`"
+                            ),
+                        ));
+                    }
+                }
+                if content.is_empty() {
+                    break;
+                }
+                content.parse::<Token![,]>()?;
+            }
+            let locale = locale.ok_or_else(|| {
+                syn::Error::new(name.span(), "collation(...) requires `locale = \"...\"`")
+            })?;
+            if locale == "simple"
+                && let Some((_, span)) = strength
+            {
+                return Err(syn::Error::new(
+                    span,
+                    "`strength` has no effect with the `simple` locale. Remove `strength`, or pick a locale",
+                ));
+            }
+            decl.collation = Some(CollationDecl {
+                locale,
+                strength: strength.map(|(value, _)| value),
+            });
+        }
+        "wildcard_projection" => {
+            input.parse::<Token![=]>()?;
+            decl.wildcard_projection = Some(input.parse()?);
+        }
+        "bits" => {
+            input.parse::<Token![=]>()?;
+            let lit: syn::LitInt = input.parse()?;
+            let value: u32 = lit.base10_parse()?;
+            decl.bits = Some((value, name.span()));
+        }
+        "min" => {
+            input.parse::<Token![=]>()?;
+            decl.min = Some((parse_signed_number(input)?, name.span()));
+        }
+        "max" => {
+            input.parse::<Token![=]>()?;
+            decl.max = Some((parse_signed_number(input)?, name.span()));
+        }
         other => {
             return Err(syn::Error::new(
                 name.span(),
@@ -245,4 +350,14 @@ fn parse_option(input: ParseStream, decl: &mut IndexDecl) -> syn::Result<()> {
         }
     }
     Ok(())
+}
+
+fn parse_signed_number(input: ParseStream) -> syn::Result<f64> {
+    let negative = input.parse::<Option<Token![-]>>()?.is_some();
+    let value: f64 = if input.peek(syn::LitFloat) {
+        input.parse::<syn::LitFloat>()?.base10_parse()?
+    } else {
+        input.parse::<syn::LitInt>()?.base10_parse()?
+    };
+    Ok(if negative { -value } else { value })
 }
