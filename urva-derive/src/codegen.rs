@@ -1,23 +1,31 @@
 use proc_macro2::TokenStream;
-use quote::{format_ident, quote};
+use quote::{format_ident, quote, quote_spanned};
 use syn::Ident;
 use syn::ext::IdentExt;
 
 use crate::case::to_snake;
-use crate::entity::{EntityModel, FieldModel, StructModel, token_type};
+use crate::entity::{EntityModel, FieldModel, StructModel, same_ident, token_type};
+use crate::index_attr::{KeyDecl, KeyKindDecl};
 
 pub fn entity_tokens(model: &EntityModel) -> TokenStream {
     let base = &model.base;
     let ident = &base.ident;
-    let fields_mod = format_ident!("{}_fields", to_snake(&ident.unraw().to_string()));
+    let snake = to_snake(&ident.unraw().to_string());
+    let fields_mod = format_ident!("{snake}_fields");
+    let index_mod = format_ident!("{snake}_index");
     let fields_module = fields_module(
         base,
         &fields_mod,
         Some((&model.id_ty, model.version.as_deref())),
     );
+    let index_module = index_module_tokens(model, &index_mod);
 
     let collection = &model.collection;
     let id_ty = &model.id_ty;
+    let spec_refs = model.indexes.iter().map(|decl| {
+        let r = &decl.ident;
+        quote! { #index_mod::#r.spec() }
+    });
 
     let (lock, version_field, marker) = match &model.version {
         Some(name) => (
@@ -31,6 +39,8 @@ pub fn entity_tokens(model: &EntityModel) -> TokenStream {
     quote! {
         #fields_module
 
+        #index_module
+
         const _: () = {
         #[automatically_derived]
         impl ::urva::__private::Sealed for #ident {}
@@ -41,7 +51,7 @@ pub fn entity_tokens(model: &EntityModel) -> TokenStream {
             type Id = #id_ty;
             type Lock = #lock;
             const VERSION_FIELD: &'static str = #version_field;
-            const INDEX_SPECS: &'static [&'static ::urva::IndexSpec] = &[];
+            const INDEX_SPECS: &'static [&'static ::urva::IndexSpec] = &[#(#spec_refs),*];
         }
 
         #[automatically_derived]
@@ -141,5 +151,85 @@ fn fields_module(
             #(#consts)*
         }
         #encoders
+    }
+}
+
+fn index_module_tokens(model: &EntityModel, index_mod: &Ident) -> TokenStream {
+    let ident = &model.base.ident;
+    let vis = &model.base.vis;
+
+    let items = model.indexes.iter().map(|decl| {
+        let name = decl.ident.unraw().to_string();
+        let keys = decl.keys.iter().map(|key| {
+            let path = key_path_expr(model, key);
+            let kind = key_kind_tokens(key.kind);
+            quote! { ::urva::IndexKey { path: #path, kind: #kind } }
+        });
+        let unique = decl.unique;
+        let sparse = decl.sparse;
+        let hidden = decl.hidden;
+        let ref_ident = &decl.ident;
+        let span = ref_ident.span();
+        quote_spanned! {span=>
+            pub const #ref_ident: ::urva::IndexRef<#ident> = {
+                const SPEC: ::urva::IndexSpec = ::urva::IndexSpec {
+                    name: #name,
+                    keys: &[#(#keys),*],
+                    unique: #unique,
+                    sparse: #sparse,
+                    hidden: #hidden,
+                    ..::urva::IndexSpec::DEFAULT
+                };
+                ::urva::__private::index_ref_from_spec(&SPEC)
+            };
+        }
+    });
+
+    quote! {
+        #[allow(non_camel_case_types)]
+        #vis enum #index_mod {}
+        #[allow(non_upper_case_globals)]
+        impl #index_mod {
+            #(#items)*
+        }
+    }
+}
+
+fn key_path_expr(model: &EntityModel, key: &KeyDecl) -> TokenStream {
+    stored_path_expr(model, &key.segments, key.kind == KeyKindDecl::FieldWildcard)
+}
+
+fn stored_path_expr(
+    model: &EntityModel,
+    segments: &[Ident],
+    trailing_wildcard: bool,
+) -> TokenStream {
+    let first = &segments[0];
+    if first.unraw() == "_id" && !trailing_wildcard {
+        return quote! { "_id" };
+    }
+    let field = model
+        .base
+        .fields
+        .iter()
+        .find(|f| same_ident(&f.ident, first))
+        .expect("validated: field exists");
+    let path = if trailing_wildcard {
+        format!("{}.$**", field.stored_name)
+    } else {
+        field.stored_name.clone()
+    };
+    quote! { #path }
+}
+
+fn key_kind_tokens(kind: KeyKindDecl) -> TokenStream {
+    match kind {
+        KeyKindDecl::Asc => quote! { ::urva::KeyKind::Asc },
+        KeyKindDecl::Desc => quote! { ::urva::KeyKind::Desc },
+        KeyKindDecl::Text => quote! { ::urva::KeyKind::Text },
+        KeyKindDecl::Hashed => quote! { ::urva::KeyKind::Hashed },
+        KeyKindDecl::TwoDSphere => quote! { ::urva::KeyKind::TwoDSphere },
+        KeyKindDecl::TwoD => quote! { ::urva::KeyKind::TwoD },
+        KeyKindDecl::FieldWildcard => quote! { ::urva::KeyKind::Wildcard },
     }
 }

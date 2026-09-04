@@ -1,0 +1,5 @@
+error: `cached_total` carries #[serde(skip)], so it is never stored and cannot be indexed
+ --> tests/compile_fail/index_on_serde_skipped_field.rs:5:24
+  |
+5 | #[index(by_cache, keys(cached_total))]
+  |                        ^^^^^^^^^^^^

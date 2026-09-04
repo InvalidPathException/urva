@@ -1,0 +1,7 @@
+error[E0592]: duplicate definitions with name `by_total`
+ --> tests/compile_fail/duplicate_raw_ident_index.rs:6:9
+  |
+5 | #[index(by_total, keys(total))]
+  |         -------- other definition for `by_total`
+6 | #[index(r#by_total, keys(status))]
+  |         ^^^^^^^^^^ duplicate definitions for `by_total`

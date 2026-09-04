@@ -1,0 +1,5 @@
+error: missing the index name. Write `#[index(<name>, keys(...))]`
+ --> tests/compile_fail/missing_index_ident.rs:5:9
+  |
+5 | #[index(keys(a))]
+  |         ^^^^

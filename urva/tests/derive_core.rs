@@ -1,9 +1,11 @@
-use mongodb::bson::{Bson, doc};
+use mongodb::bson::{Bson, doc, to_vec};
 use urva::prelude::*;
 use urva::{Field, MatchField, VersionField};
 
 #[derive(Entity, Serialize, Deserialize, Debug)]
 #[entity(collection = "orders", versioned)]
+#[index(tenant_recent, keys(tenant_id, created_at = -1), unique)]
+#[index(hidden_probe, keys(total), hidden)]
 pub struct Order {
     pub tenant_id: ObjectId,
     pub status: String,
@@ -23,6 +25,14 @@ pub struct Shipping {
 fn token<E, T>(_: Field<E, T>) {}
 fn match_token<E, T>(_: MatchField<E, T>) {}
 fn version_token<E>(_: VersionField<E>) {}
+
+fn named(model: &mongodb::IndexModel, name: &str) -> bool {
+    model
+        .options
+        .as_ref()
+        .and_then(|o| o.name.as_deref())
+        .is_some_and(|n| n == name)
+}
 
 #[test]
 fn field_tokens_use_stored_names() {
@@ -50,8 +60,40 @@ fn entity_contract_constants() {
     assert_versioned::<Order>();
     assert_id::<Order, ObjectId>();
     assert_generates_ids::<Order>();
-    assert!(Order::INDEX_SPECS.is_empty());
-    assert!(Order::index_models().is_empty());
+}
+
+#[test]
+fn index_models_render_names_keys_and_options() {
+    let models = Order::index_models();
+    assert_eq!(models.len(), 2);
+
+    let tenant_recent = models.iter().find(|m| named(m, "tenant_recent")).unwrap();
+    assert_eq!(
+        to_vec(&tenant_recent.keys).unwrap(),
+        to_vec(&doc! { "tenant_id": 1, "createdAt": -1 }).unwrap()
+    );
+    assert_eq!(tenant_recent.options.as_ref().unwrap().unique, Some(true));
+
+    let hidden = models.iter().find(|m| named(m, "hidden_probe")).unwrap();
+    assert_eq!(
+        to_vec(&hidden.keys).unwrap(),
+        to_vec(&doc! { "total": 1 }).unwrap()
+    );
+    assert_eq!(hidden.options.as_ref().unwrap().hidden, Some(true));
+}
+
+#[test]
+fn hint_symbols_typecheck() {
+    fn assert_hint<E, H: urva::HintFor<E>>(h: H) -> mongodb::options::Hint {
+        urva::HintFor::<E>::to_hint(&h)
+    }
+    let hint = assert_hint::<Order, _>(order_index::tenant_recent);
+    assert_eq!(hint, mongodb::options::Hint::Name("tenant_recent".into()));
+    assert_eq!(order_index::tenant_recent.name(), "tenant_recent");
+
+    let raw = mongodb::options::Hint::Keys(doc! { "status": 1 });
+    let _ = assert_hint::<Order, _>(raw.clone());
+    let _ = assert_hint::<Note, _>(raw);
 }
 
 fn assert_versioned<E: urva::Versioned>() {}
@@ -93,6 +135,7 @@ fn renamed_version_field_is_the_stored_lock_name() {
 
 #[derive(Entity, Serialize, Deserialize, Debug)]
 #[entity(collection = "events")]
+#[index(by_type, keys(r#type))]
 pub struct Event {
     pub r#type: String,
 }
@@ -105,6 +148,112 @@ fn raw_identifier_fields_resolve_to_serde_names() {
     let stored = mongodb::bson::to_document(&e).unwrap();
     assert!(stored.contains_key("type"), "serde writes the unraw key");
     assert_eq!(event_fields::r#type.path(), "type");
+    let models = Event::index_models();
+    assert_eq!(models[0].keys, doc! { "type": 1 });
+}
+
+#[derive(Entity, Serialize, Deserialize, Debug)]
+#[entity(collection = "counters")]
+#[index(by_cached, keys(cached_total))]
+pub struct Counter {
+    #[serde(skip_deserializing)]
+    pub cached_total: i64,
+}
+
+#[test]
+fn skip_deserializing_field_keeps_its_token_and_index() {
+    assert_eq!(counter_fields::cached_total.path(), "cached_total");
+    let models = Counter::index_models();
+    assert!(models.iter().any(|m| named(m, "by_cached")));
+}
+
+#[derive(Entity, Serialize, Deserialize, Debug)]
+#[entity(collection = "cards")]
+#[index(by_field, keys(r#wildcard))]
+pub struct Card {
+    pub wildcard: String,
+}
+
+#[test]
+fn raw_field_spelling_indexes_the_field() {
+    let models = Card::index_models();
+    let by_field = models.iter().find(|m| named(m, "by_field")).unwrap();
+    assert_eq!(
+        to_vec(&by_field.keys).unwrap(),
+        to_vec(&doc! { "wildcard": 1 }).unwrap()
+    );
+    assert_eq!(card_fields::wildcard.path(), "wildcard");
+}
+
+#[allow(clippy::duplicated_attributes)]
+#[derive(Entity, Serialize, Deserialize, Debug)]
+#[entity(collection = "hygiene")]
+#[index(foo, keys(x))]
+#[index(__SPEC_foo, keys(y))]
+#[index(__PATH_foo_0, keys(x, y))]
+pub struct Hygiene {
+    pub x: i64,
+    pub y: i64,
+}
+
+#[test]
+fn generated_names_cannot_collide_with_index_idents() {
+    let models = Hygiene::index_models();
+    assert_eq!(models.len(), 3);
+    assert!(models.iter().any(|m| named(m, "__SPEC_foo")));
+    assert!(models.iter().any(|m| named(m, "__PATH_foo_0")));
+}
+
+#[derive(Entity, Serialize, Deserialize, Debug)]
+#[entity(collection = "hygiene")]
+#[index(part, keys(a))]
+#[index(i, keys(a = -1, b))]
+#[index(s, keys(ship))]
+pub struct HygieneProbe {
+    pub a: i32,
+    pub b: i32,
+    pub ship: Shipping,
+}
+
+#[test]
+fn index_idents_matching_emitted_bindings_expand() {
+    let models = HygieneProbe::index_models();
+    let s = models.iter().find(|m| named(m, "s")).expect("declared");
+    assert_eq!(
+        to_vec(&s.keys).unwrap(),
+        to_vec(&doc! { "ship": 1 }).unwrap()
+    );
+}
+
+#[allow(clippy::duplicated_attributes)]
+#[derive(Entity, Serialize, Deserialize, Debug)]
+#[entity(collection = "twin_orders")]
+#[index(status_full, keys(status))]
+#[index(status_unique, keys(status), unique)]
+#[index(status_sparse, keys(status), sparse)]
+#[index(status_hidden, keys(status), hidden)]
+pub struct TwinOrder {
+    pub status: String,
+}
+
+#[test]
+fn same_key_pattern_twins_compile_and_emit() {
+    let models = TwinOrder::index_models();
+    assert_eq!(models.len(), 4);
+    for name in [
+        "status_full",
+        "status_unique",
+        "status_sparse",
+        "status_hidden",
+    ] {
+        let model = models.iter().find(|m| named(m, name)).unwrap();
+        assert_eq!(
+            to_vec(&model.keys).unwrap(),
+            to_vec(&doc! { "status": 1 }).unwrap()
+        );
+    }
+    let sparse = models.iter().find(|m| named(m, "status_sparse")).unwrap();
+    assert_eq!(sparse.options.as_ref().unwrap().sparse, Some(true));
 }
 
 #[derive(Entity, Serialize, Deserialize, Debug)]
@@ -296,12 +445,20 @@ fn entities_declared_inside_a_function_body_compile() {
     }
     #[derive(Entity, Serialize, Deserialize, Debug)]
     #[entity(collection = "scoped")]
+    #[index(by_local, keys(local), unique)]
     struct Scoped {
         local: Local,
     }
+    use scoped_fields as s;
     assert_eq!(Scoped::COLLECTION, "scoped");
-    assert_eq!(scoped_fields::local.path(), "local");
+    assert_eq!(s::local.path(), "local");
     assert_eq!(local_fields::n.path(), "n");
+    assert_eq!(
+        s::local.dot(local_fields::n).eq(1).into_document().unwrap(),
+        doc! { "local.n": { "$eq": 1_i64 } }
+    );
+    assert_eq!(scoped_index::by_local.name(), "by_local");
+    assert_eq!(Scoped::index_models()[0].keys, doc! { "local": 1 });
     assert_unversioned::<Scoped>();
     let _ = Scoped {
         local: Local { n: 1 },

@@ -1,7 +1,14 @@
 use proc_macro2::Span;
 use serde_derive_internals::{Ctxt, attr};
+use syn::ext::IdentExt;
 use syn::spanned::Spanned;
 use syn::{Data, DeriveInput, Fields, Ident, LitStr, Type, Visibility};
+
+use crate::index_attr::{IndexDecl, KeyDecl, KeyKindDecl};
+
+pub(crate) fn same_ident(a: &Ident, b: &Ident) -> bool {
+    a.unraw() == b.unraw()
+}
 
 pub struct FieldModel {
     pub ident: Ident,
@@ -30,6 +37,7 @@ pub struct EntityModel {
     pub collection: String,
     pub id_ty: Type,
     pub version: Option<String>,
+    pub indexes: Vec<IndexDecl>,
 }
 
 pub fn parse_struct(input: &DeriveInput, derive_name: &str) -> syn::Result<StructModel> {
@@ -263,12 +271,27 @@ pub fn parse_entity(input: &DeriveInput) -> syn::Result<EntityModel> {
         ));
     }
 
-    Ok(EntityModel {
+    let mut indexes = Vec::new();
+    let mut errors: Vec<syn::Error> = Vec::new();
+    for attr in &input.attrs {
+        if attr.path().is_ident("index") {
+            match attr.parse_args::<IndexDecl>() {
+                Ok(decl) => indexes.push(decl),
+                Err(error) => errors.push(error),
+            }
+        }
+    }
+    combine_errors(errors)?;
+
+    let model = EntityModel {
         base,
         collection,
         id_ty,
         version,
-    })
+        indexes,
+    };
+    validate_indexes(&model)?;
+    Ok(model)
 }
 
 fn reject_misplaced_attrs(input: &DeriveInput) -> syn::Result<()> {
@@ -277,12 +300,14 @@ fn reject_misplaced_attrs(input: &DeriveInput) -> syn::Result<()> {
     };
     for field in &data.fields {
         for attr in &field.attrs {
-            if attr.path().is_ident("entity") {
-                return Err(syn::Error::new(
-                    attr.span(),
-                    "`#[entity]` applies to the struct, not a field",
-                ));
-            }
+            let message = if attr.path().is_ident("entity") {
+                "`#[entity]` applies to the struct, not a field"
+            } else if attr.path().is_ident("index") {
+                "`#[index]` applies to the struct, not a field"
+            } else {
+                continue;
+            };
+            return Err(syn::Error::new(attr.span(), message));
         }
     }
     Ok(())
@@ -299,6 +324,80 @@ fn combine_errors(errors: Vec<syn::Error>) -> syn::Result<()> {
             Err(first)
         }
     }
+}
+
+fn validate_indexes(model: &EntityModel) -> syn::Result<()> {
+    let errors = model
+        .indexes
+        .iter()
+        .filter_map(|decl| validate_decl(model, decl).err())
+        .collect();
+    combine_errors(errors)
+}
+
+fn validate_decl(model: &EntityModel, decl: &IndexDecl) -> syn::Result<()> {
+    for key in &decl.keys {
+        if is_id_key(key) {
+            continue;
+        }
+        storable_field(model, &key.segments[0], " and cannot be indexed")?;
+    }
+
+    let path = |key: &KeyDecl| {
+        let mut path = key.segments[0].unraw().to_string();
+        if key.kind == KeyKindDecl::FieldWildcard {
+            path.push_str(".$**");
+        }
+        path
+    };
+    for (i, key) in decl.keys.iter().enumerate() {
+        if decl.keys[..i].iter().any(|prev| path(prev) == path(key)) {
+            return Err(syn::Error::new(
+                key.span,
+                format!("`{}` appears twice in this index's keys", path(key)),
+            ));
+        }
+    }
+
+    if let [key] = decl.keys.as_slice()
+        && is_id_key(key)
+        && key.kind == KeyKindDecl::Asc
+    {
+        return Err(syn::Error::new(
+            key.span,
+            "a one-key `_id` index restates the server's built-in `_id_` index. Remove it",
+        ));
+    }
+    Ok(())
+}
+
+fn storable_field<'m>(
+    model: &'m EntityModel,
+    ident: &Ident,
+    purpose: &str,
+) -> syn::Result<&'m FieldModel> {
+    let Some(field) = model
+        .base
+        .fields
+        .iter()
+        .find(|f| same_ident(&f.ident, ident))
+    else {
+        return Err(syn::Error::new(
+            ident.span(),
+            format!("`{ident}` is not a field of `{}`", model.base.ident),
+        ));
+    };
+    if let Some(attr) = field.unstorable {
+        return Err(syn::Error::new(
+            ident.span(),
+            format!("`{ident}` carries {attr}, so it is never stored{purpose}"),
+        ));
+    }
+    Ok(field)
+}
+
+fn is_id_key(key: &KeyDecl) -> bool {
+    matches!(key.segments.as_slice(), [only] if only.unraw() == "_id")
 }
 
 pub fn token_type(ty: &Type) -> Type {

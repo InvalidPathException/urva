@@ -1,11 +1,12 @@
 mod case;
 mod codegen;
 mod entity;
+mod index_attr;
 
 use proc_macro::TokenStream;
 use syn::{DeriveInput, parse_macro_input};
 
-#[proc_macro_derive(Entity, attributes(entity))]
+#[proc_macro_derive(Entity, attributes(entity, index))]
 pub fn derive_entity(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
     entity::parse_entity(&input)

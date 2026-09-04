@@ -1,0 +1,5 @@
+error: `total` appears twice in this index's keys
+ --> tests/compile_fail/duplicate_key_in_one_index.rs:5:31
+  |
+5 | #[index(by_total, keys(total, total = -1))]
+  |                               ^^^^^

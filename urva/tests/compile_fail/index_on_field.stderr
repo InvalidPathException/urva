@@ -1,0 +1,5 @@
+error: `#[index]` applies to the struct, not a field
+ --> tests/compile_fail/index_on_field.rs:6:5
+  |
+6 |     #[index(by_total, keys(total))]
+  |     ^

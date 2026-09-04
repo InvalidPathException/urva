@@ -1,0 +1,5 @@
+error: `missing` is not a field of `T`
+ --> tests/compile_fail/unknown_key_field.rs:5:26
+  |
+5 | #[index(by_missing, keys(missing))]
+  |                          ^^^^^^^

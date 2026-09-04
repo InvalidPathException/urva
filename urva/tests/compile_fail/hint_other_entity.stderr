@@ -1,0 +1,31 @@
+error[E0277]: the trait bound `IndexRef<User>: HintFor<Order>` is not satisfied
+  --> tests/compile_fail/hint_other_entity.rs:18:47
+   |
+18 |     let _ = orders.find(Filter::empty()).hint(user_index::by_email);
+   |                                          ---- ^^^^^^^^^^^^^^^^^^^^ the trait `HintFor<Order>` is not implemented for `IndexRef<User>`
+   |                                          |
+   |                                          required by a bound introduced by this call
+   |
+help: the trait `HintFor<Order>` is not implemented for `IndexRef<User>`
+      but trait `HintFor<User>` is implemented for it
+  --> src/index.rs
+   |
+   | impl<E: ?Sized> HintFor<E> for IndexRef<E> {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   = help: for that trait implementation, expected `User`, found `Order`
+note: required by a bound in `FindBuilder::<E, P>::hint`
+  --> src/ops/mod.rs
+   |
+   |           pub fn hint(mut self, hint: impl crate::index::HintFor<E>) -> Self {
+   |                                            ^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `FindBuilder::<E, P>::hint`
+   |
+  ::: src/ops/find.rs
+   |
+   | / crate::ops::builder!(
+   | |     FindBuilder,
+   | |     FindOptions,
+   | |     Vec<Doc<E>>,
+...  |
+   | | );
+   | |_- in this macro invocation
+   = note: this error originates in the macro `crate::ops::setter` which comes from the expansion of the macro `crate::ops::builder` (in Nightly builds, run with -Z macro-backtrace for more info)

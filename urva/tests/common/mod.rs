@@ -59,3 +59,32 @@ impl Drop for TestDb {
         let _ = cleanup.join();
     }
 }
+
+#[allow(dead_code)]
+pub fn index_names_in_plan(value: &mongodb::bson::Bson) -> Vec<String> {
+    let mut out = Vec::new();
+    collect_index_names(value, &mut out);
+    out
+}
+
+fn collect_index_names(value: &mongodb::bson::Bson, out: &mut Vec<String>) {
+    use mongodb::bson::Bson;
+    match value {
+        Bson::Document(doc) => {
+            for (key, inner) in doc {
+                if key == "indexName"
+                    && let Bson::String(name) = inner
+                {
+                    out.push(name.clone());
+                }
+                collect_index_names(inner, out);
+            }
+        }
+        Bson::Array(items) => {
+            for item in items {
+                collect_index_names(item, out);
+            }
+        }
+        _ => {}
+    }
+}

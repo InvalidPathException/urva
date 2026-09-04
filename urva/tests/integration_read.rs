@@ -1,12 +1,13 @@
 mod common;
 
-use common::TestDb;
+use common::{TestDb, index_names_in_plan};
 use futures_util::TryStreamExt;
-use mongodb::bson::doc;
+use mongodb::bson::{Bson, doc};
 use urva::prelude::*;
 
 #[derive(Entity, Serialize, Deserialize, Debug, Clone, PartialEq)]
 #[entity(collection = "orders")]
+#[index(by_tenant, keys(tenant_id, created_at = -1))]
 pub struct Order {
     pub tenant_id: i64,
     pub status: String,
@@ -16,6 +17,7 @@ pub struct Order {
 }
 
 use order_fields as o;
+use order_index as ix;
 
 fn order(tenant: i64, status: &str, millis: i64, total: i64) -> Order {
     Order {
@@ -256,6 +258,52 @@ async fn chained_and_stays_flat_for_the_server() {
         let none = store.find(chained_or).await.unwrap();
         assert!(none.is_empty(), "{n} chained .or() calls");
     }
+
+    t.drop().await;
+}
+
+#[tokio::test]
+async fn symbol_hint_is_honored_by_the_server() {
+    let Some(t) = TestDb::connect("hint_explain").await else {
+        return;
+    };
+    let store: Store<Order> = t.db.store();
+    seed(&store).await;
+    store
+        .raw()
+        .create_indexes(Order::index_models())
+        .await
+        .expect("create indexes");
+
+    let hinted = store
+        .find(o::tenant_id.eq(1))
+        .hint(ix::by_tenant)
+        .await
+        .unwrap();
+    assert_eq!(hinted.len(), 3);
+
+    let bogus = store
+        .find(o::tenant_id.eq(1))
+        .hint(mongodb::options::Hint::Name("does_not_exist".into()))
+        .await;
+    assert!(bogus.is_err(), "unknown hint names are a server error");
+
+    let explain =
+        t.db.run_command(doc! {
+            "explain": {
+                "find": Order::COLLECTION,
+                "filter": { "status": { "$eq": "open" } },
+                "hint": ix::by_tenant.name(),
+            },
+            "verbosity": "queryPlanner",
+        })
+        .await
+        .unwrap();
+    let names = index_names_in_plan(&Bson::Document(explain));
+    assert!(
+        names.iter().any(|n| n == "by_tenant"),
+        "winning plan uses the hinted index; saw {names:?}"
+    );
 
     t.drop().await;
 }

@@ -6,12 +6,14 @@ use urva::prelude::*;
 
 #[derive(Entity, Serialize, Deserialize, Debug, Clone, PartialEq)]
 #[entity(collection = "orders", versioned)]
+#[index(by_status, keys(status))]
 pub struct Order {
     pub status: String,
     pub total: i64,
 }
 
 use order_fields as o;
+use order_index as ix;
 
 fn order(status: &str, total: i64) -> Order {
     Order {
@@ -22,9 +24,12 @@ fn order(status: &str, total: i64) -> Order {
 
 #[derive(Entity, Serialize, Deserialize, Debug, Clone, PartialEq)]
 #[entity(collection = "notes", id = String)]
+#[index(by_text, keys(text))]
 pub struct Note {
     pub text: String,
 }
+use note_fields as n;
+use note_index as nix;
 
 #[tokio::test]
 async fn insert_returns_the_stored_document() {
@@ -189,7 +194,6 @@ async fn upserts_seed_the_version_field() {
     );
 
     let notes: Store<Note> = t.db.store();
-    use note_fields as n;
     notes
         .update_by_id("n1", n::text.set("x"))
         .upsert()
@@ -272,7 +276,6 @@ async fn replacement_on_unversioned_entities() {
         return;
     };
     let notes: Store<Note> = t.db.store();
-    use note_fields as n;
 
     let before = notes
         .insert_with_id("a".to_string(), Note { text: "one".into() })
@@ -537,7 +540,6 @@ async fn unversioned_save_and_delete_are_unchecked() {
         return;
     };
     let store: Store<Note> = t.db.store();
-    use note_fields as n;
     let mut a = store
         .insert_with_id("a".to_string(), Note { text: "one".into() })
         .await
@@ -743,6 +745,91 @@ async fn positional_updates_through_other_verbs() {
         read.items.iter().map(|i| i.qty).collect::<Vec<_>>(),
         vec![3, 6]
     );
+
+    t.drop().await;
+}
+
+#[tokio::test]
+async fn hints_reach_the_server_on_write_builders() {
+    let Some(t) = TestDb::connect("write_hints").await else {
+        return;
+    };
+    let store: Store<Order> = t.db.store();
+    store
+        .raw()
+        .create_indexes(Order::index_models())
+        .await
+        .unwrap();
+
+    store
+        .insert_many([order("open", 1), order("open", 2), order("open", 3)])
+        .await
+        .unwrap();
+
+    let res = store
+        .update_one(o::status.eq("open"), o::total.inc(10))
+        .hint(ix::by_status)
+        .await
+        .unwrap();
+    assert_eq!(res.modified_count, 1);
+
+    let res = store
+        .update_many(o::status.eq("open"), o::total.inc(100))
+        .hint(ix::by_status)
+        .await
+        .unwrap();
+    assert_eq!(res.modified_count, 3);
+
+    let before = store
+        .find_one_and_update(o::status.eq("open"), o::status.set("claimed"))
+        .hint(ix::by_status)
+        .await
+        .unwrap();
+    assert!(before.is_some());
+
+    let res = store
+        .delete_one(o::status.eq("claimed"))
+        .hint(ix::by_status)
+        .await
+        .unwrap();
+    assert_eq!(res.deleted_count, 1);
+
+    let res = store
+        .delete_many(o::status.eq("open"))
+        .hint(ix::by_status)
+        .await
+        .unwrap();
+    assert_eq!(res.deleted_count, 2);
+
+    store.insert(order("open", 4)).await.unwrap();
+    let bogus = store
+        .update_one(o::status.eq("open"), o::total.inc(1))
+        .hint(mongodb::options::Hint::Name("no_such_index".into()))
+        .await;
+    assert!(matches!(bogus, Err(Error::Driver(_))), "{bogus:?}");
+
+    let notes: Store<Note> = t.db.store();
+    notes
+        .raw()
+        .create_indexes(Note::index_models())
+        .await
+        .unwrap();
+    notes
+        .insert_with_id("h1".into(), Note { text: "old".into() })
+        .await
+        .unwrap();
+    let replacement = Note { text: "new".into() };
+    let res = notes
+        .replace_one(n::text.eq("old"), &replacement)
+        .hint(nix::by_text)
+        .await
+        .unwrap();
+    assert_eq!(res.modified_count, 1);
+    let bogus = notes
+        .replace_one(n::text.eq("new"), &replacement)
+        .hint(mongodb::options::Hint::Name("no_such_index".into()))
+        .await;
+    assert!(matches!(bogus, Err(Error::Driver(_))), "{bogus:?}");
 
     t.drop().await;
 }

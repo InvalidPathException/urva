@@ -1,0 +1,5 @@
+error: a one-key `_id` index restates the server's built-in `_id_` index. Remove it
+ --> tests/compile_fail/index_on_id_key.rs:5:21
+  |
+5 | #[index(by_id, keys(_id))]
+  |                     ^^^

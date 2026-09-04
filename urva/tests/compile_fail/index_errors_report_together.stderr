@@ -1,0 +1,11 @@
+error: `no_such_field` is not a field of `Order`
+ --> tests/compile_fail/index_errors_report_together.rs:5:26
+  |
+5 | #[index(by_missing, keys(no_such_field))]
+  |                          ^^^^^^^^^^^^^
+
+error: `nor_this_one` is not a field of `Order`
+ --> tests/compile_fail/index_errors_report_together.rs:6:32
+  |
+6 | #[index(by_other_missing, keys(nor_this_one))]
+  |                                ^^^^^^^^^^^^
