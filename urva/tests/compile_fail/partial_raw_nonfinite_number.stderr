@@ -1,0 +1,5 @@
+error: invalid JSON: number out of range at line 1 column 15
+ --> tests/compile_fail/partial_raw_nonfinite_number.rs:5:41
+  |
+5 | #[index(big, keys(total), partial_raw = "{\"total\": 1e999}")]
+  |                                         ^^^^^^^^^^^^^^^^^^^^

@@ -1,0 +1,5 @@
+error: invalid JSON: expected value at line 1 column 12
+ --> tests/compile_fail/partial_raw_invalid_json.rs:5:38
+  |
+5 | #[index(open, keys(x), partial_raw = "{\"status\": }")]
+  |                                      ^^^^^^^^^^^^^^^^

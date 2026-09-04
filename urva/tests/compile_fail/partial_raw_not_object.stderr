@@ -1,0 +1,11 @@
+error: partial_raw must be a JSON object (a document, `{...}`)
+ --> tests/compile_fail/partial_raw_not_object.rs:5:49
+  |
+5 | #[index(open_orders, keys(total), partial_raw = "[{\"total\": {\"$gt\": 1}}]")]
+  |                                                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error: partial_raw must be a JSON object (a document, `{...}`)
+  --> tests/compile_fail/partial_raw_not_object.rs:12:49
+   |
+12 | #[index(open_orders, keys(total), partial_raw = "5")]
+   |                                                 ^^^

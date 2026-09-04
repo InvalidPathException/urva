@@ -1,0 +1,5 @@
+error: weights(...) takes at least one `<field> = <n>`
+ --> tests/compile_fail/empty_weights.rs:5:37
+  |
+5 | #[index(search, keys(title = text), weights())]
+  |                                     ^^^^^^^

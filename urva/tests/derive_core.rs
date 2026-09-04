@@ -5,6 +5,8 @@ use urva::{Field, MatchField, VersionField};
 #[derive(Entity, Serialize, Deserialize, Debug)]
 #[entity(collection = "orders", versioned)]
 #[index(tenant_recent, keys(tenant_id, created_at = -1), unique)]
+#[index(open_status, keys(status), partial(status = "open"))]
+#[index(order_search, keys(title = text, body = text), weights(title = 10))]
 #[index(expiry, keys(expires_at), ttl = 3600)]
 #[index(hidden_probe, keys(total), hidden)]
 pub struct Order {
@@ -12,6 +14,8 @@ pub struct Order {
     pub status: String,
     #[serde(rename = "createdAt")]
     pub created_at: DateTime,
+    pub title: String,
+    pub body: String,
     pub expires_at: DateTime,
     pub total: i64,
     pub shipping: Shipping,
@@ -67,7 +71,7 @@ fn entity_contract_constants() {
 #[test]
 fn index_models_render_names_keys_and_options() {
     let models = Order::index_models();
-    assert_eq!(models.len(), 3);
+    assert_eq!(models.len(), 5);
 
     let tenant_recent = models.iter().find(|m| named(m, "tenant_recent")).unwrap();
     assert_eq!(
@@ -75,6 +79,30 @@ fn index_models_render_names_keys_and_options() {
         to_vec(&doc! { "tenant_id": 1, "createdAt": -1 }).unwrap()
     );
     assert_eq!(tenant_recent.options.as_ref().unwrap().unique, Some(true));
+
+    let open_status = models.iter().find(|m| named(m, "open_status")).unwrap();
+    assert_eq!(
+        to_vec(&open_status.keys).unwrap(),
+        to_vec(&doc! { "status": 1 }).unwrap()
+    );
+    assert_eq!(
+        open_status
+            .options
+            .as_ref()
+            .unwrap()
+            .partial_filter_expression,
+        Some(doc! { "status": { "$eq": "open" } })
+    );
+
+    let search = models.iter().find(|m| named(m, "order_search")).unwrap();
+    assert_eq!(
+        to_vec(&search.keys).unwrap(),
+        to_vec(&doc! { "title": "text", "body": "text" }).unwrap()
+    );
+    assert_eq!(
+        search.options.as_ref().unwrap().weights,
+        Some(doc! { "title": 10 })
+    );
 
     let expiry = models.iter().find(|m| named(m, "expiry")).unwrap();
     assert_eq!(
@@ -240,10 +268,10 @@ fn index_idents_matching_emitted_bindings_expand() {
 #[allow(clippy::duplicated_attributes)]
 #[derive(Entity, Serialize, Deserialize, Debug)]
 #[entity(collection = "twin_orders")]
+#[index(open_by_status, keys(status), partial(status = "open"))]
+#[index(closed_by_status, keys(status), partial(status = "closed"))]
 #[index(status_full, keys(status))]
-#[index(status_unique, keys(status), unique)]
 #[index(status_sparse, keys(status), sparse)]
-#[index(status_hidden, keys(status), hidden)]
 pub struct TwinOrder {
     pub status: String,
 }
@@ -253,10 +281,10 @@ fn same_key_pattern_twins_compile_and_emit() {
     let models = TwinOrder::index_models();
     assert_eq!(models.len(), 4);
     for name in [
+        "open_by_status",
+        "closed_by_status",
         "status_full",
-        "status_unique",
         "status_sparse",
-        "status_hidden",
     ] {
         let model = models.iter().find(|m| named(m, name)).unwrap();
         assert_eq!(
@@ -266,6 +294,37 @@ fn same_key_pattern_twins_compile_and_emit() {
     }
     let sparse = models.iter().find(|m| named(m, "status_sparse")).unwrap();
     assert_eq!(sparse.options.as_ref().unwrap().sparse, Some(true));
+}
+
+#[allow(clippy::duplicated_attributes)]
+#[derive(Entity, Serialize, Deserialize, Debug)]
+#[entity(collection = "credits")]
+#[index(overdrawn, keys(balance), partial(balance = -5))]
+#[index(cold, keys(score), partial(score = -0.5))]
+pub struct Credit {
+    pub balance: i64,
+    pub score: f64,
+}
+
+#[test]
+fn negative_partial_literals_render() {
+    let models = Credit::index_models();
+    let partial = |name: &str| {
+        models
+            .iter()
+            .find(|m| named(m, name))
+            .unwrap()
+            .options
+            .as_ref()
+            .unwrap()
+            .partial_filter_expression
+            .clone()
+    };
+    assert_eq!(
+        partial("overdrawn"),
+        Some(doc! { "balance": { "$eq": -5i64 } })
+    );
+    assert_eq!(partial("cold"), Some(doc! { "score": { "$eq": -0.5 } }));
 }
 
 #[derive(Entity, Serialize, Deserialize, Debug)]

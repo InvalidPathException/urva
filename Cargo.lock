@@ -1930,6 +1930,7 @@ dependencies = [
  "proc-macro2",
  "quote",
  "serde_derive_internals",
+ "serde_json",
  "syn 3.0.5",
 ]
 

@@ -5,9 +5,10 @@ use syn::ext::IdentExt;
 
 use crate::case::to_snake;
 use crate::entity::{EntityModel, FieldModel, StructModel, same_ident, token_type};
-use crate::index_attr::{KeyDecl, KeyKindDecl};
+use crate::index_attr::{IndexDecl, KeyDecl, KeyKindDecl, PartialDecl};
+use serde_json::Value as Json;
 
-pub fn entity_tokens(model: &EntityModel) -> TokenStream {
+pub fn entity_tokens(model: &EntityModel) -> syn::Result<TokenStream> {
     let base = &model.base;
     let ident = &base.ident;
     let snake = to_snake(&ident.unraw().to_string());
@@ -18,7 +19,7 @@ pub fn entity_tokens(model: &EntityModel) -> TokenStream {
         &fields_mod,
         Some((&model.id_ty, model.version.as_deref())),
     );
-    let index_module = index_module_tokens(model, &index_mod);
+    let index_module = index_module_tokens(model, &index_mod)?;
 
     let collection = &model.collection;
     let id_ty = &model.id_ty;
@@ -55,7 +56,7 @@ pub fn entity_tokens(model: &EntityModel) -> TokenStream {
     });
     let ttl_asserts: TokenStream = ttl_asserts.collect();
 
-    quote! {
+    Ok(quote! {
         #fields_module
 
         #index_module
@@ -78,7 +79,7 @@ pub fn entity_tokens(model: &EntityModel) -> TokenStream {
 
         #ttl_asserts
         };
-    }
+    })
 }
 
 fn declared_or_encoded(field: &FieldModel) -> TokenStream {
@@ -185,11 +186,12 @@ fn fields_module(
     }
 }
 
-fn index_module_tokens(model: &EntityModel, index_mod: &Ident) -> TokenStream {
+fn index_module_tokens(model: &EntityModel, index_mod: &Ident) -> syn::Result<TokenStream> {
     let ident = &model.base.ident;
     let vis = &model.base.vis;
 
-    let items = model.indexes.iter().map(|decl| {
+    let mut items = TokenStream::new();
+    for decl in &model.indexes {
         let name = decl.ident.unraw().to_string();
         let keys = decl.keys.iter().map(|key| {
             let path = key_path_expr(model, key);
@@ -200,9 +202,14 @@ fn index_module_tokens(model: &EntityModel, index_mod: &Ident) -> TokenStream {
         let sparse = decl.sparse;
         let hidden = decl.hidden;
         let ttl = option_tokens(decl.ttl.map(|(secs, _)| quote! { #secs }));
+        let partial = partial_tokens(model, decl)?;
+        let weights = decl.weights.iter().map(|(field, weight)| {
+            let stored = stored_path_expr(model, std::slice::from_ref(field), false);
+            quote! { ::urva::Weight { field: #stored, weight: #weight } }
+        });
         let ref_ident = &decl.ident;
         let span = ref_ident.span();
-        quote_spanned! {span=>
+        items.extend(quote_spanned! {span=>
             pub const #ref_ident: ::urva::IndexRef<#ident> = {
                 const SPEC: ::urva::IndexSpec = ::urva::IndexSpec {
                     name: #name,
@@ -211,19 +218,116 @@ fn index_module_tokens(model: &EntityModel, index_mod: &Ident) -> TokenStream {
                     sparse: #sparse,
                     hidden: #hidden,
                     ttl_seconds: #ttl,
+                    partial: #partial,
+                    weights: &[#(#weights),*],
                     ..::urva::IndexSpec::DEFAULT
                 };
                 ::urva::__private::index_ref_from_spec(&SPEC)
             };
-        }
-    });
+        });
+    }
 
-    quote! {
+    Ok(quote! {
         #[allow(non_camel_case_types)]
         #vis enum #index_mod {}
         #[allow(non_upper_case_globals)]
         impl #index_mod {
-            #(#items)*
+            #items
+        }
+    })
+}
+
+fn partial_tokens(model: &EntityModel, decl: &IndexDecl) -> syn::Result<TokenStream> {
+    match &decl.partial {
+        None => Ok(quote! { ::core::option::Option::None }),
+        Some(PartialDecl::Shorthand { field, value }) => {
+            let stored = stored_name_of(model, field);
+            let value = lit_to_const_bson(value)?;
+            Ok(quote! {
+                ::core::option::Option::Some(::urva::ConstBson::Doc(&[(
+                    #stored,
+                    ::urva::ConstBson::Doc(&[("$eq", #value)]),
+                )]))
+            })
+        }
+        Some(PartialDecl::Raw(lit)) => {
+            let tree = json_tokens(&parse_json_object(lit, "partial_raw")?);
+            Ok(quote! { ::core::option::Option::Some(#tree) })
+        }
+    }
+}
+
+fn stored_name_of(model: &EntityModel, field: &Ident) -> String {
+    model
+        .base
+        .fields
+        .iter()
+        .find(|f| same_ident(&f.ident, field))
+        .map(|f| f.stored_name.clone())
+        .unwrap_or_else(|| field.unraw().to_string())
+}
+
+fn lit_to_const_bson(lit: &syn::Lit) -> syn::Result<TokenStream> {
+    Ok(match lit {
+        syn::Lit::Str(s) => {
+            let v = s.value();
+            quote! { ::urva::ConstBson::Str(#v) }
+        }
+        syn::Lit::Int(i) => {
+            let v: i64 = i.base10_parse()?;
+            quote! { ::urva::ConstBson::I64(#v) }
+        }
+        syn::Lit::Float(f) => {
+            let v: f64 = f.base10_parse()?;
+            quote! { ::urva::ConstBson::F64(#v) }
+        }
+        syn::Lit::Bool(b) => {
+            let v = b.value();
+            quote! { ::urva::ConstBson::Bool(#v) }
+        }
+        other => {
+            return Err(syn::Error::new(
+                other.span(),
+                "partial(...) literals may be strings, integers, floats, or booleans",
+            ));
+        }
+    })
+}
+
+fn parse_json_object(lit: &syn::LitStr, option: &str) -> syn::Result<Json> {
+    let parsed: Json = serde_json::from_str(&lit.value())
+        .map_err(|e| syn::Error::new(lit.span(), format!("invalid JSON: {e}")))?;
+    match parsed {
+        Json::Object(_) => Ok(parsed),
+        _ => Err(syn::Error::new(
+            lit.span(),
+            format!("{option} must be a JSON object (a document, `{{...}}`)"),
+        )),
+    }
+}
+
+fn json_tokens(value: &Json) -> TokenStream {
+    match value {
+        Json::Null => quote! { ::urva::ConstBson::Null },
+        Json::Bool(b) => quote! { ::urva::ConstBson::Bool(#b) },
+        Json::Number(n) => match n.as_i64() {
+            Some(i) => quote! { ::urva::ConstBson::I64(#i) },
+            None => {
+                let f = n.as_f64().unwrap_or(f64::NAN);
+                quote! { ::urva::ConstBson::F64(#f) }
+            }
+        },
+        Json::String(s) => quote! { ::urva::ConstBson::Str(#s) },
+        Json::Array(items) => {
+            let items = items.iter().map(json_tokens);
+            quote! { ::urva::ConstBson::Arr(&[#(#items),*]) }
+        }
+        Json::Object(entries) => {
+            let entries = entries.iter().map(|(k, v)| {
+                let v = json_tokens(v);
+                quote! { (#k, #v) }
+            });
+            quote! { ::urva::ConstBson::Doc(&[#(#entries),*]) }
         }
     }
 }

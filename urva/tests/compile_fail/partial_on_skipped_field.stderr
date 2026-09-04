@@ -1,0 +1,5 @@
+error: `status` carries #[serde(skip)], so it is never stored and cannot be filtered on
+ --> tests/compile_fail/partial_on_skipped_field.rs:5:32
+  |
+5 | #[index(open, keys(x), partial(status = "open"))]
+  |                                ^^^^^^

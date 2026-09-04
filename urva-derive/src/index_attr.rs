@@ -1,6 +1,7 @@
 use proc_macro2::Span;
+use syn::ext::IdentExt;
 use syn::parse::{Parse, ParseStream};
-use syn::{Ident, Token, parenthesized};
+use syn::{Ident, Lit, LitStr, Token, parenthesized};
 
 const MISSING_IDENT: &str = "missing the index name. Write `#[index(<name>, keys(...))]`";
 const KEY_KINDS: &str = "expected one of `1`, `-1`, `text`, `hashed`, `2dsphere`, `2d`, `wildcard`";
@@ -13,6 +14,14 @@ pub struct IndexDecl {
     pub sparse: bool,
     pub hidden: bool,
     pub ttl: Option<(u64, Span)>,
+    pub partial: Option<PartialDecl>,
+    pub weights: Vec<(Ident, i32)>,
+}
+
+#[derive(Clone)]
+pub enum PartialDecl {
+    Shorthand { field: Ident, value: Lit },
+    Raw(LitStr),
 }
 
 #[derive(Clone)]
@@ -73,6 +82,8 @@ impl Parse for IndexDecl {
             sparse: false,
             hidden: false,
             ttl: None,
+            partial: None,
+            weights: Vec::new(),
         };
 
         while !input.is_empty() {
@@ -150,6 +161,81 @@ fn parse_option(input: ParseStream, decl: &mut IndexDecl) -> syn::Result<()> {
             let lit: syn::LitInt = input.parse()?;
             let seconds: u64 = lit.base10_parse()?;
             decl.ttl = Some((seconds, name.span()));
+        }
+        "partial" => {
+            let content;
+            parenthesized!(content in input);
+            let field: Ident = content.parse()?;
+            if content.peek(Token![.]) {
+                return Err(syn::Error::new(
+                    field.span(),
+                    "`partial(...)` takes a direct field. Use `partial_raw = \"...\"` for a dotted path",
+                ));
+            }
+            content.parse::<Token![=]>()?;
+            let negative = content.parse::<Option<Token![-]>>()?.is_some();
+            let value: Lit = content.parse()?;
+            let value = match value {
+                Lit::Int(i) if negative => Lit::Int(syn::LitInt::new(
+                    &format!("-{}", i.base10_digits()),
+                    i.span(),
+                )),
+                Lit::Float(f) if negative => Lit::Float(syn::LitFloat::new(
+                    &format!("-{}", f.base10_digits()),
+                    f.span(),
+                )),
+                other if negative => {
+                    return Err(syn::Error::new(other.span(), "`-` applies to numbers only"));
+                }
+                other => other,
+            };
+            if !content.is_empty() {
+                return Err(syn::Error::new(
+                    content.span(),
+                    "`partial(...)` takes exactly one `<field> = <literal>`. Use `partial_raw` for other filters",
+                ));
+            }
+            decl.partial = Some(PartialDecl::Shorthand { field, value });
+        }
+        "partial_raw" => {
+            input.parse::<Token![=]>()?;
+            let lit: LitStr = input.parse()?;
+            decl.partial = Some(PartialDecl::Raw(lit));
+        }
+        "weights" => {
+            let content;
+            parenthesized!(content in input);
+            decl.weights.clear();
+            loop {
+                if content.is_empty() {
+                    break;
+                }
+                let field: Ident = content.parse()?;
+                content.parse::<Token![=]>()?;
+                let weight: syn::LitInt = content.parse()?;
+                if decl
+                    .weights
+                    .iter()
+                    .any(|(seen, _)| seen.unraw() == field.unraw())
+                {
+                    return Err(syn::Error::new(
+                        field.span(),
+                        format!("duplicate weight for `{}`", field.unraw()),
+                    ));
+                }
+                let value: i32 = weight.base10_parse()?;
+                decl.weights.push((field, value));
+                if content.is_empty() {
+                    break;
+                }
+                content.parse::<Token![,]>()?;
+            }
+            if decl.weights.is_empty() {
+                return Err(syn::Error::new(
+                    name.span(),
+                    "weights(...) takes at least one `<field> = <n>`",
+                ));
+            }
         }
         other => {
             return Err(syn::Error::new(

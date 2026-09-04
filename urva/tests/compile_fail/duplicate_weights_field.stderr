@@ -1,0 +1,5 @@
+error: duplicate weight for `title`
+ --> tests/compile_fail/duplicate_weights_field.rs:5:57
+  |
+5 | #[index(search, keys(title = text), weights(title = 10, title = 2))]
+  |                                                         ^^^^^

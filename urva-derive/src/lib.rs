@@ -10,7 +10,7 @@ use syn::{DeriveInput, parse_macro_input};
 pub fn derive_entity(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
     entity::parse_entity(&input)
-        .map(|model| codegen::entity_tokens(&model))
+        .and_then(|model| codegen::entity_tokens(&model))
         .unwrap_or_else(|err| err.to_compile_error())
         .into()
 }

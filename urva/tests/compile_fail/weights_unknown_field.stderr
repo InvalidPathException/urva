@@ -1,0 +1,5 @@
+error: `missing` is not a field of `Order`
+ --> tests/compile_fail/weights_unknown_field.rs:5:45
+  |
+5 | #[index(search, keys(title = text), weights(missing = 5))]
+  |                                             ^^^^^^^

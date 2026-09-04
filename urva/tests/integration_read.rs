@@ -307,3 +307,44 @@ async fn symbol_hint_is_honored_by_the_server() {
 
     t.drop().await;
 }
+
+#[derive(Entity, Serialize, Deserialize, Debug)]
+#[entity(collection = "notes")]
+#[index(note_search, keys(body = text))]
+pub struct Note {
+    pub body: String,
+}
+
+#[tokio::test]
+async fn text_search_finds_indexed_documents() {
+    let Some(t) = TestDb::connect("text_search").await else {
+        return;
+    };
+    let store: Store<Note> = t.db.store();
+    store
+        .raw()
+        .create_indexes(Note::index_models())
+        .await
+        .unwrap();
+    let a = store
+        .insert(Note {
+            body: "red kayak on the river".into(),
+        })
+        .await
+        .unwrap();
+    store
+        .insert(Note {
+            body: "blue bicycle in the shed".into(),
+        })
+        .await
+        .unwrap();
+
+    let hits = store.find(text("kayak")).await.unwrap();
+    assert_eq!(hits.len(), 1);
+    assert_eq!(hits[0].id(), a.id());
+
+    let none = store.find(text("submarine")).await.unwrap();
+    assert!(none.is_empty());
+
+    t.drop().await;
+}

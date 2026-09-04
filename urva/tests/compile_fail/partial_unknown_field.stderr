@@ -1,0 +1,5 @@
+error: `missing` is not a field of `Order`
+ --> tests/compile_fail/partial_unknown_field.rs:5:32
+  |
+5 | #[index(open, keys(x), partial(missing = "open"))]
+  |                                ^^^^^^^

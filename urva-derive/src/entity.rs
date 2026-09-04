@@ -4,7 +4,7 @@ use syn::ext::IdentExt;
 use syn::spanned::Spanned;
 use syn::{Data, DeriveInput, Fields, Ident, LitStr, Type, Visibility};
 
-use crate::index_attr::{IndexDecl, KeyDecl, KeyKindDecl};
+use crate::index_attr::{IndexDecl, KeyDecl, KeyKindDecl, PartialDecl};
 
 pub(crate) fn same_ident(a: &Ident, b: &Ident) -> bool {
     a.unraw() == b.unraw()
@@ -379,6 +379,14 @@ fn validate_decl(model: &EntityModel, decl: &IndexDecl) -> syn::Result<()> {
             ttl_span,
             "`ttl` requires an ascending or descending key. Change the key kind, or drop `ttl`",
         ));
+    }
+
+    for (field, _) in &decl.weights {
+        storable_field(model, field, " and cannot be weighted")?;
+    }
+
+    if let Some(PartialDecl::Shorthand { field, .. }) = &decl.partial {
+        storable_field(model, field, " and cannot be filtered on")?;
     }
     Ok(())
 }
