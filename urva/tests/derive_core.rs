@@ -5,12 +5,14 @@ use urva::{Field, MatchField, VersionField};
 #[derive(Entity, Serialize, Deserialize, Debug)]
 #[entity(collection = "orders", versioned)]
 #[index(tenant_recent, keys(tenant_id, created_at = -1), unique)]
+#[index(expiry, keys(expires_at), ttl = 3600)]
 #[index(hidden_probe, keys(total), hidden)]
 pub struct Order {
     pub tenant_id: ObjectId,
     pub status: String,
     #[serde(rename = "createdAt")]
     pub created_at: DateTime,
+    pub expires_at: DateTime,
     pub total: i64,
     pub shipping: Shipping,
 }
@@ -65,7 +67,7 @@ fn entity_contract_constants() {
 #[test]
 fn index_models_render_names_keys_and_options() {
     let models = Order::index_models();
-    assert_eq!(models.len(), 2);
+    assert_eq!(models.len(), 3);
 
     let tenant_recent = models.iter().find(|m| named(m, "tenant_recent")).unwrap();
     assert_eq!(
@@ -73,6 +75,16 @@ fn index_models_render_names_keys_and_options() {
         to_vec(&doc! { "tenant_id": 1, "createdAt": -1 }).unwrap()
     );
     assert_eq!(tenant_recent.options.as_ref().unwrap().unique, Some(true));
+
+    let expiry = models.iter().find(|m| named(m, "expiry")).unwrap();
+    assert_eq!(
+        to_vec(&expiry.keys).unwrap(),
+        to_vec(&doc! { "expires_at": 1 }).unwrap()
+    );
+    assert_eq!(
+        expiry.options.as_ref().unwrap().expire_after,
+        Some(std::time::Duration::from_secs(3600))
+    );
 
     let hidden = models.iter().find(|m| named(m, "hidden_probe")).unwrap();
     assert_eq!(
@@ -376,6 +388,14 @@ pub struct Invoice {
 use invoice_fields as inv;
 use money_fields as mo;
 
+#[derive(Entity, Serialize, Deserialize, Debug)]
+#[entity(collection = "written_leases")]
+#[index(expiry, keys(expires_at), ttl = 60)]
+pub struct WrittenLease {
+    #[serde(with = "cents_as_string")]
+    pub expires_at: i64,
+}
+
 #[test]
 fn encoded_fields_get_tokens_that_encode_through_the_writer() {
     let stored = mongodb::bson::to_document(&Invoice {
@@ -422,7 +442,7 @@ fn encoded_fields_get_tokens_that_encode_through_the_writer() {
 }
 
 #[test]
-fn encoded_fields_expose_range_and_numeric_operators() {
+fn encoded_fields_expose_range_and_numeric_operators_and_ttl() {
     assert_eq!(
         inv::total.gt(5).into_document().unwrap(),
         doc! { "total": { "$gt": "5" } }
@@ -434,6 +454,13 @@ fn encoded_fields_expose_range_and_numeric_operators() {
     assert_eq!(
         inv::price.dot(mo::cents).max(9).into_parts().unwrap().0,
         doc! { "$max": { "price.cents": "9" } }
+    );
+    let models = <WrittenLease as urva::Entity>::index_models();
+    assert_eq!(models.len(), 1);
+    assert_eq!(models[0].keys, doc! { "expires_at": 1 });
+    assert_eq!(
+        models[0].options.as_ref().unwrap().expire_after,
+        Some(std::time::Duration::from_secs(60))
     );
 }
 

@@ -368,6 +368,18 @@ fn validate_decl(model: &EntityModel, decl: &IndexDecl) -> syn::Result<()> {
             "a one-key `_id` index restates the server's built-in `_id_` index. Remove it",
         ));
     }
+
+    if let Some((_, ttl_span)) = decl.ttl
+        && decl
+            .keys
+            .iter()
+            .any(|k| !matches!(k.kind, KeyKindDecl::Asc | KeyKindDecl::Desc))
+    {
+        return Err(syn::Error::new(
+            ttl_span,
+            "`ttl` requires an ascending or descending key. Change the key kind, or drop `ttl`",
+        ));
+    }
     Ok(())
 }
 

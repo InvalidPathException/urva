@@ -1,0 +1,5 @@
+error: `ttl` requires an ascending or descending key. Change the key kind, or drop `ttl`
+ --> tests/compile_fail/ttl_wrong_key_shape.rs:5:36
+  |
+5 | #[index(expiry, keys(at = hashed), ttl = 60)]
+  |                                    ^^^

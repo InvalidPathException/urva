@@ -36,6 +36,25 @@ pub fn entity_tokens(model: &EntityModel) -> TokenStream {
         None => (quote! { () }, "version", quote! { ::urva::Unversioned }),
     };
 
+    let ttl_asserts = model.indexes.iter().flat_map(|decl| {
+        let ttl_span = decl.ttl.map(|(_, span)| span);
+        decl.keys.iter().filter_map(move |key| {
+            let ttl_span = ttl_span?;
+            let field = base
+                .fields
+                .iter()
+                .find(|f| same_ident(&f.ident, &key.segments[0]))?;
+            let leaf_ty = declared_or_encoded(field);
+            Some(quote_spanned! {ttl_span=>
+                const _: () = {
+                    fn ttl_key_must_be_a_date<T: ::urva::Accepts<::urva::TtlKey>>() {}
+                    let _ = ttl_key_must_be_a_date::<#leaf_ty>;
+                };
+            })
+        })
+    });
+    let ttl_asserts: TokenStream = ttl_asserts.collect();
+
     quote! {
         #fields_module
 
@@ -56,7 +75,19 @@ pub fn entity_tokens(model: &EntityModel) -> TokenStream {
 
         #[automatically_derived]
         impl #marker for #ident {}
+
+        #ttl_asserts
         };
+    }
+}
+
+fn declared_or_encoded(field: &FieldModel) -> TokenStream {
+    match &field.custom_writer_path {
+        Some(_) => quote! { ::urva::__private::CustomWritten },
+        None => {
+            let ty = &field.ty;
+            quote! { #ty }
+        }
     }
 }
 
@@ -168,6 +199,7 @@ fn index_module_tokens(model: &EntityModel, index_mod: &Ident) -> TokenStream {
         let unique = decl.unique;
         let sparse = decl.sparse;
         let hidden = decl.hidden;
+        let ttl = option_tokens(decl.ttl.map(|(secs, _)| quote! { #secs }));
         let ref_ident = &decl.ident;
         let span = ref_ident.span();
         quote_spanned! {span=>
@@ -178,6 +210,7 @@ fn index_module_tokens(model: &EntityModel, index_mod: &Ident) -> TokenStream {
                     unique: #unique,
                     sparse: #sparse,
                     hidden: #hidden,
+                    ttl_seconds: #ttl,
                     ..::urva::IndexSpec::DEFAULT
                 };
                 ::urva::__private::index_ref_from_spec(&SPEC)
@@ -220,6 +253,13 @@ fn stored_path_expr(
         field.stored_name.clone()
     };
     quote! { #path }
+}
+
+fn option_tokens(value: Option<TokenStream>) -> TokenStream {
+    match value {
+        Some(v) => quote! { ::core::option::Option::Some(#v) },
+        None => quote! { ::core::option::Option::None },
+    }
 }
 
 fn key_kind_tokens(kind: KeyKindDecl) -> TokenStream {

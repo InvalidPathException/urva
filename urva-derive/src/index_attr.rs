@@ -12,6 +12,7 @@ pub struct IndexDecl {
     pub unique: bool,
     pub sparse: bool,
     pub hidden: bool,
+    pub ttl: Option<(u64, Span)>,
 }
 
 #[derive(Clone)]
@@ -71,6 +72,7 @@ impl Parse for IndexDecl {
             unique: false,
             sparse: false,
             hidden: false,
+            ttl: None,
         };
 
         while !input.is_empty() {
@@ -143,6 +145,12 @@ fn parse_option(input: ParseStream, decl: &mut IndexDecl) -> syn::Result<()> {
         "unique" => decl.unique = true,
         "sparse" => decl.sparse = true,
         "hidden" => decl.hidden = true,
+        "ttl" => {
+            input.parse::<Token![=]>()?;
+            let lit: syn::LitInt = input.parse()?;
+            let seconds: u64 = lit.base10_parse()?;
+            decl.ttl = Some((seconds, name.span()));
+        }
         other => {
             return Err(syn::Error::new(
                 name.span(),

@@ -38,6 +38,18 @@ pub use store::{Store, StoreExt};
 pub use update::{ElementFilter, Numeric, NumericIn, Update, apply, element_filter};
 pub use version::Version;
 
+#[diagnostic::on_unimplemented(
+    message = "`{Self}` is not accepted for this `{Rule}`",
+    label = "a `ttl` key must serialize as a BSON date: `bson::DateTime`, `Option<bson::DateTime>`, or a type that implements `urva::Accepts<urva::TtlKey>`"
+)]
+pub trait Accepts<Rule> {}
+
+pub struct TtlKey;
+
+impl Accepts<TtlKey> for bson::DateTime {}
+impl Accepts<TtlKey> for Option<bson::DateTime> {}
+impl Accepts<TtlKey> for __private::CustomWritten {}
+
 pub use urva_derive::{Embedded, Entity};
 
 #[doc(hidden)]
@@ -57,6 +69,8 @@ pub mod prelude {
 #[doc(hidden)]
 pub mod __private {
     pub trait Sealed {}
+
+    pub struct CustomWritten;
 
     pub const fn new_field<E: ?Sized, T: ?Sized, Cap, Enc>(
         path: &'static str,
