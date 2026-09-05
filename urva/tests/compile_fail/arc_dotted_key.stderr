@@ -1,0 +1,126 @@
+error[E0277]: `Arc<Shipping>` has no stored field with this name
+  --> tests/compile_fail/arc_dotted_key.rs:11:28
+   |
+11 | #[index(by_city, keys(home.city))]
+   |                            ^^^^ this path segment does not resolve: the field must exist, serde must store it, and every earlier segment must be an embedded type
+   |
+   = help: the trait `urva::__private::NestedField<urva::__private::Seg<2037672291, urva::__private::End>>` is not implemented for `Arc<Shipping>`
+help: the trait `urva::__private::NestedField<urva::__private::Seg<2037672291, urva::__private::End>>` is implemented for `Shipping`
+  --> tests/compile_fail/arc_dotted_key.rs:4:10
+   |
+ 4 | #[derive(Embedded, Serialize, Deserialize)]
+   |          ^^^^^^^^
+   = note: this error originates in the derive macro `Embedded` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0277]: the trait bound `Arc<Shipping>: serde::Serialize` is not satisfied
+  --> tests/compile_fail/arc_dotted_key.rs:9:18
+   |
+ 9 | #[derive(Entity, Serialize, Deserialize)]
+   |                  ^^^^^^^^^ the trait `_::_serde::Serialize` is not implemented for `Arc<Shipping>`
+...
+13 |     pub home: Arc<Shipping>,
+   |     --- required by a bound introduced by this call
+   |
+   = note: for local types consider adding `#[derive(serde::Serialize)]` to your `Arc<Shipping>` type
+   = note: for types from other crates check whether the crate offers a `serde` feature flag
+   = help: the following other types implement trait `_::_serde::Serialize`:
+             &'a T
+             &'a mut T
+             &RawArray
+             &RawDocument
+             ()
+             (T,)
+             (T0, T1)
+             (T0, T1, T2)
+           and $N others
+note: required by a bound in `_::_serde::ser::SerializeStruct::serialize_field`
+  --> $CARGO/serde_core-$VERSION/src/ser/mod.rs
+   |
+   |     fn serialize_field<T>(&mut self, key: &'static str, value: &T) -> Result<(), Self::Error>
+   |        --------------- required by a bound in this associated function
+   |     where
+   |         T: ?Sized + Serialize;
+   |                     ^^^^^^^^^ required by this bound in `SerializeStruct::serialize_field`
+   = note: this error originates in the derive macro `Serialize` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0277]: the trait bound `Arc<Shipping>: serde::Deserialize<'de>` is not satisfied
+  --> tests/compile_fail/arc_dotted_key.rs:13:15
+   |
+13 |     pub home: Arc<Shipping>,
+   |               ^^^^^^^^^^^^^ the trait `_::_serde::Deserialize<'_>` is not implemented for `Arc<Shipping>`
+   |
+   = note: for local types consider adding `#[derive(serde::Deserialize)]` to your `Arc<Shipping>` type
+   = note: for types from other crates check whether the crate offers a `serde` feature flag
+   = help: the following other types implement trait `_::_serde::Deserialize<'de>`:
+             &'a Path
+             &'a RawArray
+             &'a RawDocument
+             &'a [u8]
+             &'a serde_bytes::bytearray::ByteArray<N>
+             &'a serde_bytes::bytes::Bytes
+             &'a str
+             ()
+           and $N others
+note: required by a bound in `next_element`
+  --> $CARGO/serde_core-$VERSION/src/de/mod.rs
+   |
+   |     fn next_element<T>(&mut self) -> Result<Option<T>, Self::Error>
+   |        ------------ required by a bound in this associated function
+   |     where
+   |         T: Deserialize<'de>,
+   |            ^^^^^^^^^^^^^^^^ required by this bound in `SeqAccess::next_element`
+
+error[E0277]: the trait bound `Arc<Shipping>: serde::Deserialize<'de>` is not satisfied
+  --> tests/compile_fail/arc_dotted_key.rs:13:15
+   |
+13 |     pub home: Arc<Shipping>,
+   |               ^^^^^^^^^^^^^ the trait `_::_serde::Deserialize<'_>` is not implemented for `Arc<Shipping>`
+   |
+   = note: for local types consider adding `#[derive(serde::Deserialize)]` to your `Arc<Shipping>` type
+   = note: for types from other crates check whether the crate offers a `serde` feature flag
+   = help: the following other types implement trait `_::_serde::Deserialize<'de>`:
+             &'a Path
+             &'a RawArray
+             &'a RawDocument
+             &'a [u8]
+             &'a serde_bytes::bytearray::ByteArray<N>
+             &'a serde_bytes::bytes::Bytes
+             &'a str
+             ()
+           and $N others
+note: required by a bound in `next_value`
+  --> $CARGO/serde_core-$VERSION/src/de/mod.rs
+   |
+   |     fn next_value<V>(&mut self) -> Result<V, Self::Error>
+   |        ---------- required by a bound in this associated function
+   |     where
+   |         V: Deserialize<'de>,
+   |            ^^^^^^^^^^^^^^^^ required by this bound in `MapAccess::next_value`
+
+error[E0277]: the trait bound `Arc<Shipping>: serde::Deserialize<'de>` is not satisfied
+ --> tests/compile_fail/arc_dotted_key.rs:9:29
+  |
+9 | #[derive(Entity, Serialize, Deserialize)]
+  |                             ^^^^^^^^^^^ the trait `_::_serde::Deserialize<'_>` is not implemented for `Arc<Shipping>`
+  |
+  = note: for local types consider adding `#[derive(serde::Deserialize)]` to your `Arc<Shipping>` type
+  = note: for types from other crates check whether the crate offers a `serde` feature flag
+  = help: the following other types implement trait `_::_serde::Deserialize<'de>`:
+            &'a Path
+            &'a RawArray
+            &'a RawDocument
+            &'a [u8]
+            &'a serde_bytes::bytearray::ByteArray<N>
+            &'a serde_bytes::bytes::Bytes
+            &'a str
+            ()
+          and $N others
+note: required by a bound in `_::_serde::__private229::de::missing_field`
+ --> $CARGO/serde-$VERSION/src/private/de.rs
+  |
+  | pub fn missing_field<'de, V, E>(field: &'static str) -> Result<V, E>
+  |        ------------- required by a bound in this function
+  | where
+  |     V: Deserialize<'de>,
+  |        ^^^^^^^^^^^^^^^^ required by this bound in `missing_field`
+  = note: this error originates in the derive macro `Deserialize` (in Nightly builds, run with -Z macro-backtrace for more info)

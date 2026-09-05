@@ -68,9 +68,25 @@ pub mod prelude {
 
 #[doc(hidden)]
 pub mod __private {
+    use std::marker::PhantomData;
+
     pub trait Sealed {}
 
     pub struct CustomWritten;
+
+    pub struct Seg<const WORD: u128, Rest>(PhantomData<Rest>);
+
+    pub struct End;
+
+    #[diagnostic::on_unimplemented(
+        message = "`{Self}` has no stored field with this name",
+        label = "this path segment does not resolve: the field must exist, serde must store it, and every earlier segment must be an embedded type"
+    )]
+    pub trait NestedField<N> {
+        const STORED: &'static str;
+        type Ty;
+        type Declared;
+    }
 
     pub const fn new_field<E: ?Sized, T: ?Sized, Cap, Enc>(
         path: &'static str,

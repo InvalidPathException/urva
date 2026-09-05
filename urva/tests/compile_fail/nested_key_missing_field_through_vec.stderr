@@ -1,0 +1,13 @@
+error[E0277]: `Item` has no stored field with this name
+  --> tests/compile_fail/nested_key_missing_field_through_vec.rs:10:28
+   |
+10 | #[index(by_sku, keys(items.skuu))]
+   |                            ^^^^ this path segment does not resolve: the field must exist, serde must store it, and every earlier segment must be an embedded type
+   |
+help: the trait `NestedField<urva::__private::Seg<1970629491, urva::__private::End>>` is not implemented for `Item`
+      but trait `NestedField<urva::__private::Seg<7695219, urva::__private::End>>` is implemented for it
+  --> tests/compile_fail/nested_key_missing_field_through_vec.rs:3:10
+   |
+ 3 | #[derive(Embedded, Serialize, Deserialize)]
+   |          ^^^^^^^^
+   = note: this error originates in the derive macro `Embedded` (in Nightly builds, run with -Z macro-backtrace for more info)

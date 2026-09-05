@@ -9,6 +9,7 @@ use urva::{Field, MatchField, VersionField};
 #[index(order_search, keys(title = text, body = text), weights(title = 10))]
 #[index(expiry, keys(expires_at), ttl = 3600)]
 #[index(hidden_probe, keys(total), hidden)]
+#[index(ship_city, keys(shipping.city_name))]
 #[index(everything, keys(wildcard), wildcard_projection = "{\"title\": 1}")]
 pub struct Order {
     pub tenant_id: ObjectId,
@@ -72,7 +73,7 @@ fn entity_contract_constants() {
 #[test]
 fn index_models_render_names_keys_and_options() {
     let models = Order::index_models();
-    assert_eq!(models.len(), 6);
+    assert_eq!(models.len(), 7);
 
     let tenant_recent = models.iter().find(|m| named(m, "tenant_recent")).unwrap();
     assert_eq!(
@@ -130,6 +131,149 @@ fn index_models_render_names_keys_and_options() {
     assert_eq!(
         wildcard.options.as_ref().unwrap().wildcard_projection,
         Some(doc! { "title": 1_i64 })
+    );
+}
+
+#[test]
+fn dotted_key_path_is_serde_resolved_on_both_sides() {
+    let models = Order::index_models();
+    let ship_city = models.iter().find(|m| named(m, "ship_city")).unwrap();
+    assert_eq!(
+        to_vec(&ship_city.keys).unwrap(),
+        to_vec(&doc! { "shipping.cityName": 1 }).unwrap()
+    );
+}
+
+#[derive(Entity, Serialize, Deserialize, Debug)]
+#[entity(collection = "carts")]
+#[index(by_sku, keys(items.sku))]
+#[index(by_gift_city, keys(gift_address.city_name))]
+#[index(by_extra_sku, keys(extra_items.sku))]
+pub struct Cart {
+    pub items: Vec<Item>,
+    pub gift_address: Option<Shipping>,
+    pub extra_items: Option<Vec<Item>>,
+}
+
+#[derive(Embedded, Serialize, Deserialize, Debug)]
+pub struct Item {
+    pub sku: String,
+}
+
+#[test]
+fn dotted_keys_reach_through_option_and_vec() {
+    let models = Cart::index_models();
+    let by_sku = models.iter().find(|m| named(m, "by_sku")).unwrap();
+    assert_eq!(
+        to_vec(&by_sku.keys).unwrap(),
+        to_vec(&doc! { "items.sku": 1 }).unwrap()
+    );
+    let by_gift = models.iter().find(|m| named(m, "by_gift_city")).unwrap();
+    assert_eq!(
+        to_vec(&by_gift.keys).unwrap(),
+        to_vec(&doc! { "gift_address.cityName": 1 }).unwrap()
+    );
+    let by_extra = models.iter().find(|m| named(m, "by_extra_sku")).unwrap();
+    assert_eq!(
+        to_vec(&by_extra.keys).unwrap(),
+        to_vec(&doc! { "extra_items.sku": 1 }).unwrap()
+    );
+}
+
+#[derive(Entity, Serialize, Deserialize, Debug)]
+#[entity(collection = "deep")]
+#[index(leaf, keys(wrap.mid.leaf))]
+#[index(vec_leaf, keys(wrap.mids.leaf = -1))]
+#[index(deep_wild, keys(wrap.mid.leaf = wildcard))]
+#[index(four_deep, keys(wrap.mid.tail.end))]
+pub struct Deep {
+    pub wrap: Wrap,
+}
+
+#[derive(Embedded, Serialize, Deserialize, Debug)]
+pub struct Wrap {
+    #[serde(rename = "midStored")]
+    pub mid: Mid,
+    pub mids: Option<Vec<Mid>>,
+}
+
+#[derive(Embedded, Serialize, Deserialize, Debug)]
+pub struct Mid {
+    #[serde(rename = "leafStored")]
+    pub leaf: String,
+    pub tail: Tail,
+}
+
+#[derive(Embedded, Serialize, Deserialize, Debug)]
+pub struct Tail {
+    #[serde(rename = "endStored")]
+    pub end: String,
+}
+
+#[test]
+fn dotted_keys_reach_arbitrary_depth() {
+    let models = Deep::index_models();
+    let leaf = models.iter().find(|m| named(m, "leaf")).unwrap();
+    assert_eq!(
+        to_vec(&leaf.keys).unwrap(),
+        to_vec(&doc! { "wrap.midStored.leafStored": 1 }).unwrap()
+    );
+    let vec_leaf = models.iter().find(|m| named(m, "vec_leaf")).unwrap();
+    assert_eq!(
+        to_vec(&vec_leaf.keys).unwrap(),
+        to_vec(&doc! { "wrap.mids.leafStored": -1 }).unwrap()
+    );
+    let deep_wild = models.iter().find(|m| named(m, "deep_wild")).unwrap();
+    assert_eq!(
+        to_vec(&deep_wild.keys).unwrap(),
+        to_vec(&doc! { "wrap.midStored.leafStored.$**": 1 }).unwrap()
+    );
+    let four_deep = models.iter().find(|m| named(m, "four_deep")).unwrap();
+    assert_eq!(
+        to_vec(&four_deep.keys).unwrap(),
+        to_vec(&doc! { "wrap.midStored.tail.endStored": 1 }).unwrap()
+    );
+}
+
+#[derive(Entity, Serialize, Deserialize, Debug)]
+#[entity(collection = "posts")]
+#[index(search, keys(shipping.city_name = text), weights(shipping.city_name = 7))]
+pub struct Post {
+    pub shipping: Shipping,
+}
+
+#[test]
+fn dotted_weights_resolve_stored_paths() {
+    let models = Post::index_models();
+    let search = models.iter().find(|m| named(m, "search")).unwrap();
+    let weights = search.options.as_ref().unwrap().weights.as_ref().unwrap();
+    assert_eq!(weights, &doc! { "shipping.cityName": 7 });
+}
+
+#[derive(Entity, Serialize, Deserialize, Debug)]
+#[entity(collection = "leases")]
+#[index(lease_expiry, keys(term.expires_at), ttl = 60)]
+pub struct Lease {
+    pub term: Term,
+}
+
+#[derive(Embedded, Serialize, Deserialize, Debug)]
+pub struct Term {
+    #[serde(rename = "expiresAt")]
+    pub expires_at: DateTime,
+}
+
+#[test]
+fn dotted_ttl_key_resolves_the_leaf_and_stored_path() {
+    let models = Lease::index_models();
+    let expiry = models.iter().find(|m| named(m, "lease_expiry")).unwrap();
+    assert_eq!(
+        to_vec(&expiry.keys).unwrap(),
+        to_vec(&doc! { "term.expiresAt": 1 }).unwrap()
+    );
+    assert_eq!(
+        expiry.options.as_ref().unwrap().expire_after,
+        Some(std::time::Duration::from_secs(60))
     );
 }
 
@@ -259,7 +403,7 @@ fn generated_names_cannot_collide_with_index_idents() {
 #[entity(collection = "hygiene")]
 #[index(part, keys(a))]
 #[index(i, keys(a = -1, b))]
-#[index(s, keys(ship))]
+#[index(s, keys(ship.city_name))]
 pub struct HygieneProbe {
     pub a: i32,
     pub b: i32,
@@ -272,7 +416,7 @@ fn index_idents_matching_emitted_bindings_expand() {
     let s = models.iter().find(|m| named(m, "s")).expect("declared");
     assert_eq!(
         to_vec(&s.keys).unwrap(),
-        to_vec(&doc! { "ship": 1 }).unwrap()
+        to_vec(&doc! { "ship.cityName": 1 }).unwrap()
     );
 }
 
@@ -391,6 +535,9 @@ fn negative_partial_literals_render() {
 
 #[derive(Entity, Serialize, Deserialize, Debug)]
 #[entity(collection = "parcels")]
+#[index(by_city, keys(home.city_name))]
+#[index(by_boxed_opt, keys(boxed_opt.zip))]
+#[index(by_boxed_vec, keys(boxed_vec.zip))]
 pub struct Parcel {
     pub home: Box<Shipping>,
     pub maybe_home: Option<Box<Shipping>>,
@@ -408,6 +555,40 @@ fn boxed_fields_erase_the_box() {
     token::<Parcel, Option<Shipping>>(p::boxed_opt);
     token::<Parcel, Vec<Shipping>>(p::boxed_vec);
     assert_eq!(p::label.path(), "label");
+
+    use shipping_fields as sf;
+    assert_eq!(
+        p::home
+            .dot(sf::city_name)
+            .eq("Vienna")
+            .into_document()
+            .unwrap(),
+        doc! { "home.cityName": { "$eq": "Vienna" } }
+    );
+    assert_eq!(
+        p::maybe_home
+            .dot(sf::zip)
+            .eq("1010")
+            .into_document()
+            .unwrap(),
+        doc! { "maybe_home.zip": { "$eq": "1010" } }
+    );
+    let models = Parcel::index_models();
+    let by_city = models.iter().find(|m| named(m, "by_city")).unwrap();
+    assert_eq!(
+        to_vec(&by_city.keys).unwrap(),
+        to_vec(&doc! { "home.cityName": 1 }).unwrap()
+    );
+    let by_boxed_opt = models.iter().find(|m| named(m, "by_boxed_opt")).unwrap();
+    assert_eq!(
+        to_vec(&by_boxed_opt.keys).unwrap(),
+        to_vec(&doc! { "boxed_opt.zip": 1 }).unwrap()
+    );
+    let by_boxed_vec = models.iter().find(|m| named(m, "by_boxed_vec")).unwrap();
+    assert_eq!(
+        to_vec(&by_boxed_vec.keys).unwrap(),
+        to_vec(&doc! { "boxed_vec.zip": 1 }).unwrap()
+    );
 }
 
 #[derive(Entity, Serialize, Deserialize, Debug)]
@@ -512,9 +693,11 @@ use money_fields as mo;
 #[derive(Entity, Serialize, Deserialize, Debug)]
 #[entity(collection = "written_leases")]
 #[index(expiry, keys(expires_at), ttl = 60)]
+#[index(price_expiry, keys(price.cents), ttl = 60)]
 pub struct WrittenLease {
     #[serde(with = "cents_as_string")]
     pub expires_at: i64,
+    pub price: Money,
 }
 
 #[test]
@@ -577,8 +760,9 @@ fn encoded_fields_expose_range_and_numeric_operators_and_ttl() {
         doc! { "$max": { "price.cents": "9" } }
     );
     let models = <WrittenLease as urva::Entity>::index_models();
-    assert_eq!(models.len(), 1);
+    assert_eq!(models.len(), 2);
     assert_eq!(models[0].keys, doc! { "expires_at": 1 });
+    assert_eq!(models[1].keys, doc! { "price.cents": 1 });
     assert_eq!(
         models[0].options.as_ref().unwrap().expire_after,
         Some(std::time::Duration::from_secs(60))
@@ -593,7 +777,7 @@ fn entities_declared_inside_a_function_body_compile() {
     }
     #[derive(Entity, Serialize, Deserialize, Debug)]
     #[entity(collection = "scoped")]
-    #[index(by_local, keys(local), unique)]
+    #[index(by_inner, keys(local.n), unique)]
     struct Scoped {
         local: Local,
     }
@@ -605,8 +789,8 @@ fn entities_declared_inside_a_function_body_compile() {
         s::local.dot(local_fields::n).eq(1).into_document().unwrap(),
         doc! { "local.n": { "$eq": 1_i64 } }
     );
-    assert_eq!(scoped_index::by_local.name(), "by_local");
-    assert_eq!(Scoped::index_models()[0].keys, doc! { "local": 1 });
+    assert_eq!(scoped_index::by_inner.name(), "by_inner");
+    assert_eq!(Scoped::index_models()[0].keys, doc! { "local.n": 1 });
     assert_unversioned::<Scoped>();
     let _ = Scoped {
         local: Local { n: 1 },

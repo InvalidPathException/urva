@@ -10,6 +10,18 @@ pub(crate) fn same_ident(a: &Ident, b: &Ident) -> bool {
     a.unraw() == b.unraw()
 }
 
+pub(crate) fn field_name_words(ident: &Ident) -> Vec<u128> {
+    let name = ident.unraw().to_string();
+    name.as_bytes()
+        .chunks(16)
+        .map(|chunk| {
+            let mut word = [0u8; 16];
+            word[..chunk.len()].copy_from_slice(chunk);
+            u128::from_le_bytes(word)
+        })
+        .collect()
+}
+
 pub struct FieldModel {
     pub ident: Ident,
     pub ty: Type,
@@ -362,11 +374,7 @@ fn validate_decl(
     }
 
     let path = |key: &KeyDecl| {
-        let mut path = key
-            .segments
-            .first()
-            .map(|s| s.unraw().to_string())
-            .unwrap_or_default();
+        let mut path = crate::index_attr::dotted(&key.segments);
         if key.kind == KeyKindDecl::FieldWildcard {
             path.push_str(".$**");
         }
@@ -422,8 +430,8 @@ fn validate_decl(
         ));
     }
 
-    for (field, _) in &decl.weights {
-        storable_field(model, field, " and cannot be weighted")?;
+    for (segments, _) in &decl.weights {
+        storable_field(model, &segments[0], " and cannot be weighted")?;
     }
 
     if let Some(PartialDecl::Shorthand { field, .. }) = &decl.partial {
@@ -492,6 +500,17 @@ fn peel_type_groups(ty: &Type) -> &Type {
         Type::Paren(paren) => peel_type_groups(&paren.elem),
         other => other,
     }
+}
+
+pub fn dotted_key_base_type(ty: &Type) -> Type {
+    let mut ty = token_type(ty);
+    if let Some(inner) = wrapper_inner_type(&ty, "Option") {
+        ty = inner;
+    }
+    if let Some(inner) = wrapper_inner_type(&ty, "Vec") {
+        ty = inner;
+    }
+    ty
 }
 
 fn wrapper_inner_type(ty: &Type, wrapper: &str) -> Option<Type> {

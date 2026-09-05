@@ -15,7 +15,7 @@ pub struct IndexDecl {
     pub hidden: bool,
     pub ttl: Option<(u64, Span)>,
     pub partial: Option<PartialDecl>,
-    pub weights: Vec<(Ident, i32)>,
+    pub weights: Vec<(Vec<Ident>, i32)>,
     pub collation: Option<CollationDecl>,
     pub wildcard_projection: Option<LitStr>,
     pub bits: Option<(u32, Span)>,
@@ -119,13 +119,14 @@ fn parse_key(input: ParseStream) -> syn::Result<KeyDecl> {
         .parse()
         .map_err(|_| syn::Error::new(input.span(), "expected a field name or `wildcard`"))?;
     let span = field.span();
-    if field == "wildcard" && !input.peek(Token![=]) {
+    if field == "wildcard" && !input.peek(Token![.]) && !input.peek(Token![=]) {
         return Ok(KeyDecl {
             segments: Vec::new(),
             kind: KeyKindDecl::WholeDocWildcard,
             span,
         });
     }
+    let segments = parse_segments(input, field)?;
     let kind = if input.peek(Token![=]) {
         input.parse::<Token![=]>()?;
         parse_key_kind(input)?
@@ -133,10 +134,30 @@ fn parse_key(input: ParseStream) -> syn::Result<KeyDecl> {
         KeyKindDecl::Asc
     };
     Ok(KeyDecl {
-        segments: vec![field],
+        segments,
         kind,
         span,
     })
+}
+
+fn parse_segments(input: ParseStream, first: Ident) -> syn::Result<Vec<Ident>> {
+    let mut segments = vec![first];
+    while input.peek(Token![.]) {
+        input.parse::<Token![.]>()?;
+        let segment: Ident = input
+            .parse()
+            .map_err(|_| syn::Error::new(input.span(), "expected a field name after `.`"))?;
+        segments.push(segment);
+    }
+    Ok(segments)
+}
+
+pub fn dotted(segments: &[Ident]) -> String {
+    segments
+        .iter()
+        .map(|s| s.unraw().to_string())
+        .collect::<Vec<_>>()
+        .join(".")
 }
 
 fn parse_key_kind(input: ParseStream) -> syn::Result<KeyKindDecl> {
@@ -234,21 +255,22 @@ fn parse_option(input: ParseStream, decl: &mut IndexDecl) -> syn::Result<()> {
                 if content.is_empty() {
                     break;
                 }
-                let field: Ident = content.parse()?;
+                let first: Ident = content.parse()?;
+                let segments = parse_segments(&content, first)?;
                 content.parse::<Token![=]>()?;
                 let weight: syn::LitInt = content.parse()?;
                 if decl
                     .weights
                     .iter()
-                    .any(|(seen, _)| seen.unraw() == field.unraw())
+                    .any(|(seen, _)| dotted(seen) == dotted(&segments))
                 {
                     return Err(syn::Error::new(
-                        field.span(),
-                        format!("duplicate weight for `{}`", field.unraw()),
+                        segments[0].span(),
+                        format!("duplicate weight for `{}`", dotted(&segments)),
                     ));
                 }
                 let value: i32 = weight.base10_parse()?;
-                decl.weights.push((field, value));
+                decl.weights.push((segments, value));
                 if content.is_empty() {
                     break;
                 }

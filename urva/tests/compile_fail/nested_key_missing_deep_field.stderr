@@ -1,0 +1,13 @@
+error[E0277]: `Carrier` has no stored field with this name
+  --> tests/compile_fail/nested_key_missing_deep_field.rs:5:37
+   |
+ 5 | #[index(deep, keys(shipping.carrier.wrong))]
+   |                                     ^^^^^ this path segment does not resolve: the field must exist, serde must store it, and every earlier segment must be an embedded type
+   |
+help: the trait `NestedField<urva::__private::Seg<444234429047, urva::__private::End>>` is not implemented for `Carrier`
+      but trait `NestedField<urva::__private::Seg<1701080931, urva::__private::End>>` is implemented for it
+  --> tests/compile_fail/nested_key_missing_deep_field.rs:15:10
+   |
+15 | #[derive(Embedded, Serialize, Deserialize)]
+   |          ^^^^^^^^
+   = note: this error originates in the derive macro `Embedded` (in Nightly builds, run with -Z macro-backtrace for more info)

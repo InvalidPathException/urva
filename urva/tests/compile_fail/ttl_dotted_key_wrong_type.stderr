@@ -1,0 +1,19 @@
+error[E0277]: `std::string::String` is not accepted for this `TtlKey`
+ --> tests/compile_fail/ttl_dotted_key_wrong_type.rs:5:33
+  |
+5 | #[index(expiry, keys(inner.at), ttl = 60)]
+  |                                 ^^^ a `ttl` key must serialize as a BSON date: `bson::DateTime`, `Option<bson::DateTime>`, or a type that implements `urva::Accepts<urva::TtlKey>`
+  |
+  = help: the trait `Accepts<TtlKey>` is not implemented for `std::string::String`
+help: the following other types implement trait `Accepts<Rule>`
+ --> src/lib.rs
+  |
+  | impl Accepts<TtlKey> for bson::DateTime {}
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `urva::prelude::DateTime`
+  | impl Accepts<TtlKey> for Option<bson::DateTime> {}
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `std::option::Option<urva::prelude::DateTime>`
+note: required by a bound in `ttl_key_must_be_a_date`
+ --> tests/compile_fail/ttl_dotted_key_wrong_type.rs:5:33
+  |
+5 | #[index(expiry, keys(inner.at), ttl = 60)]
+  |                                 ^^^ required by this bound in `ttl_key_must_be_a_date`

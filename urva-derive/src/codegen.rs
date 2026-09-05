@@ -4,7 +4,10 @@ use syn::Ident;
 use syn::ext::IdentExt;
 
 use crate::case::to_snake;
-use crate::entity::{EntityModel, FieldModel, StructModel, same_ident, token_type};
+use crate::entity::{
+    EntityModel, FieldModel, StructModel, dotted_key_base_type, field_name_words, same_ident,
+    token_type,
+};
 use crate::index_attr::{IndexDecl, KeyDecl, KeyKindDecl, PartialDecl};
 use serde_json::Value as Json;
 
@@ -19,6 +22,7 @@ pub fn entity_tokens(model: &EntityModel) -> syn::Result<TokenStream> {
         &fields_mod,
         Some((&model.id_ty, model.version.as_deref())),
     );
+    let witnesses = witness_impl(base);
     let index_module = index_module_tokens(model, &index_mod)?;
 
     let collection = &model.collection;
@@ -43,7 +47,10 @@ pub fn entity_tokens(model: &EntityModel) -> syn::Result<TokenStream> {
             let ttl_span = ttl_span?;
             let first = key.segments.first()?;
             let field = base.fields.iter().find(|f| same_ident(&f.ident, first))?;
-            let leaf_ty = declared_or_encoded(field);
+            let leaf_ty = match nested_hops(field, &key.segments, |_| ttl_span).pop() {
+                None => declared_or_encoded(field),
+                Some((hop, span)) => quote_spanned! {span=> #hop::Declared },
+            };
             Some(quote_spanned! {ttl_span=>
                 const _: () = {
                     fn ttl_key_must_be_a_date<T: ::urva::Accepts<::urva::TtlKey>>() {}
@@ -56,6 +63,8 @@ pub fn entity_tokens(model: &EntityModel) -> syn::Result<TokenStream> {
 
     Ok(quote! {
         #fields_module
+
+        #witnesses
 
         #index_module
 
@@ -94,6 +103,7 @@ pub fn embedded_tokens(base: &StructModel) -> TokenStream {
     let ident = &base.ident;
     let fields_mod = format_ident!("{}_fields", to_snake(&ident.unraw().to_string()));
     let fields_module = fields_module(base, &fields_mod, None);
+    let witnesses = witness_impl(base);
     quote! {
         #[automatically_derived]
         impl ::urva::__private::Sealed for #ident {}
@@ -102,7 +112,79 @@ pub fn embedded_tokens(base: &StructModel) -> TokenStream {
         impl ::urva::Embedded for #ident {}
 
         #fields_module
+
+        #witnesses
     }
+}
+
+fn witness_impl(base: &StructModel) -> TokenStream {
+    let ident = &base.ident;
+    let nested = base
+        .fields
+        .iter()
+        .filter(|field| field.unstorable.is_none())
+        .map(|field| {
+            let marker = field_name_marker(&field.ident);
+            let stored = &field.stored_name;
+            let peeled = dotted_key_base_type(&field.ty);
+            let declared = declared_or_encoded(field);
+            quote! {
+                #[automatically_derived]
+                impl ::urva::__private::NestedField<#marker> for #ident {
+                    const STORED: &'static str = #stored;
+                    type Ty = #peeled;
+                    type Declared = #declared;
+                }
+            }
+        });
+    quote! { #(#nested)* }
+}
+
+fn field_name_marker(field: &Ident) -> TokenStream {
+    field_name_words(field).into_iter().rev().fold(
+        quote! { ::urva::__private::End },
+        |rest, word| {
+            quote! { ::urva::__private::Seg<#word, #rest> }
+        },
+    )
+}
+
+fn respan(tokens: TokenStream, span: proc_macro2::Span) -> TokenStream {
+    tokens
+        .into_iter()
+        .map(|mut tree| {
+            if let proc_macro2::TokenTree::Group(group) = &tree {
+                let mut regrouped =
+                    proc_macro2::Group::new(group.delimiter(), respan(group.stream(), span));
+                regrouped.set_span(span);
+                tree = proc_macro2::TokenTree::Group(regrouped);
+            } else {
+                tree.set_span(span);
+            }
+            tree
+        })
+        .collect()
+}
+
+fn nested_hops(
+    field: &FieldModel,
+    segments: &[Ident],
+    span_of: impl Fn(&Ident) -> proc_macro2::Span,
+) -> Vec<(TokenStream, proc_macro2::Span)> {
+    let base_ty = dotted_key_base_type(&field.ty);
+    let mut hop_ty = quote! { #base_ty };
+    segments[1..]
+        .iter()
+        .map(|segment| {
+            let marker = field_name_marker(segment);
+            let span = span_of(segment);
+            let self_ty = respan(hop_ty.clone(), span);
+            let hop =
+                quote_spanned! {span=> <#self_ty as ::urva::__private::NestedField<#marker>> };
+            hop_ty = quote! { #hop::Ty };
+            (hop, span)
+        })
+        .collect()
 }
 
 fn encoder_ident(base: &StructModel, field: &FieldModel) -> Ident {
@@ -201,8 +283,8 @@ fn index_module_tokens(model: &EntityModel, index_mod: &Ident) -> syn::Result<To
         let hidden = decl.hidden;
         let ttl = option_tokens(decl.ttl.map(|(secs, _)| quote! { #secs }));
         let partial = partial_tokens(model, decl)?;
-        let weights = decl.weights.iter().map(|(field, weight)| {
-            let stored = stored_path_expr(model, std::slice::from_ref(field), false);
+        let weights = decl.weights.iter().map(|(segments, weight)| {
+            let stored = stored_path_expr(model, segments, false);
             quote! { ::urva::Weight { field: #stored, weight: #weight } }
         });
         let collation = option_tokens(decl.collation.as_ref().map(|c| {
@@ -365,7 +447,7 @@ fn stored_path_expr(
     trailing_wildcard: bool,
 ) -> TokenStream {
     let first = &segments[0];
-    if first.unraw() == "_id" && !trailing_wildcard {
+    if segments.len() == 1 && first.unraw() == "_id" && !trailing_wildcard {
         return quote! { "_id" };
     }
     let field = model
@@ -374,12 +456,63 @@ fn stored_path_expr(
         .iter()
         .find(|f| same_ident(&f.ident, first))
         .expect("validated: field exists");
-    let path = if trailing_wildcard {
-        format!("{}.$**", field.stored_name)
-    } else {
-        field.stored_name.clone()
-    };
-    quote! { #path }
+    let stored_first = &field.stored_name;
+
+    if segments.len() == 1 {
+        let path = if trailing_wildcard {
+            format!("{stored_first}.$**")
+        } else {
+            stored_first.clone()
+        };
+        return quote! { #path };
+    }
+
+    let mut parts = vec![quote! { #stored_first }];
+    for (hop, span) in nested_hops(field, segments, Ident::span) {
+        parts.push(quote_spanned! {span=> #hop::STORED });
+    }
+    if trailing_wildcard {
+        parts.push(quote! { "$**" });
+    }
+
+    quote! {
+        {
+            const PARTS: &[&str] = &[#(#parts),*];
+            const LEN: usize = {
+                let mut __urva_n = 0usize;
+                let mut __urva_i = 0;
+                while __urva_i < PARTS.len() {
+                    __urva_n += PARTS[__urva_i].len();
+                    __urva_i += 1;
+                }
+                __urva_n + PARTS.len() - 1
+            };
+            const BYTES: [u8; LEN] = {
+                let mut __urva_buf = [0u8; LEN];
+                let mut __urva_pos = 0;
+                let mut __urva_i = 0;
+                while __urva_i < PARTS.len() {
+                    if __urva_i > 0 {
+                        __urva_buf[__urva_pos] = b'.';
+                        __urva_pos += 1;
+                    }
+                    let __urva_part = PARTS[__urva_i].as_bytes();
+                    let mut __urva_j = 0;
+                    while __urva_j < __urva_part.len() {
+                        __urva_buf[__urva_pos] = __urva_part[__urva_j];
+                        __urva_pos += 1;
+                        __urva_j += 1;
+                    }
+                    __urva_i += 1;
+                }
+                __urva_buf
+            };
+            match ::core::str::from_utf8(&BYTES) {
+                ::core::result::Result::Ok(__urva_s) => __urva_s,
+                ::core::result::Result::Err(_) => ::core::panic!("unreachable: UTF-8 concat"),
+            }
+        }
+    }
 }
 
 fn option_tokens(value: Option<TokenStream>) -> TokenStream {

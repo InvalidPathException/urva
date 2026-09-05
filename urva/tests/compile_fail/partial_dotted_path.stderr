@@ -1,0 +1,5 @@
+error: `partial(...)` takes a direct field. Use `partial_raw = "..."` for a dotted path
+ --> tests/compile_fail/partial_dotted_path.rs:5:34
+  |
+5 | #[index(bad, keys(city), partial(shipping.city = "Vienna"))]
+  |                                  ^^^^^^^^
