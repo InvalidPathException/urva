@@ -11,6 +11,7 @@ use urva::{Field, MatchField, VersionField};
 #[index(hidden_probe, keys(total), hidden)]
 #[index(ship_city, keys(shipping.city_name))]
 #[index(everything, keys(wildcard), wildcard_projection = "{\"title\": 1}")]
+#[external_index(legacy_geo)]
 pub struct Order {
     pub tenant_id: ObjectId,
     pub status: String,
@@ -64,6 +65,7 @@ fn field_tokens_carry_the_declared_types() {
 #[test]
 fn entity_contract_constants() {
     assert_eq!(Order::COLLECTION, "orders");
+    assert_eq!(Order::EXTERNAL_INDEX_NAMES, ["legacy_geo"]);
     assert_eq!(Order::VERSION_FIELD, "version");
     assert_versioned::<Order>();
     assert_id::<Order, ObjectId>();
@@ -286,6 +288,9 @@ fn hint_symbols_typecheck() {
     assert_eq!(hint, mongodb::options::Hint::Name("tenant_recent".into()));
     assert_eq!(order_index::tenant_recent.name(), "tenant_recent");
 
+    let hint = assert_hint::<Order, _>(order_index::legacy_geo);
+    assert_eq!(hint, mongodb::options::Hint::Name("legacy_geo".into()));
+
     let raw = mongodb::options::Hint::Keys(doc! { "status": 1 });
     let _ = assert_hint::<Order, _>(raw.clone());
     let _ = assert_hint::<Note, _>(raw);
@@ -458,6 +463,27 @@ fn same_key_pattern_twins_compile_and_emit() {
         collation.strength,
         Some(mongodb::options::CollationStrength::Secondary)
     ));
+}
+
+#[derive(Entity, Serialize, Deserialize, Debug)]
+#[entity(collection = "legacy")]
+#[external_index(plain_ext)]
+#[external_index(legacy_geo, name = "legacy-geo.1")]
+pub struct LegacyIndexed {
+    pub a: i64,
+}
+
+#[test]
+fn external_index_name_override_carries_server_name() {
+    assert_eq!(
+        LegacyIndexed::EXTERNAL_INDEX_NAMES,
+        ["plain_ext", "legacy-geo.1"]
+    );
+    assert!(LegacyIndexed::index_models().is_empty());
+    let hint = urva::HintFor::<LegacyIndexed>::to_hint(&legacy_indexed_index::legacy_geo);
+    assert_eq!(hint, mongodb::options::Hint::Name("legacy-geo.1".into()));
+    let hint = urva::HintFor::<LegacyIndexed>::to_hint(&legacy_indexed_index::plain_ext);
+    assert_eq!(hint, mongodb::options::Hint::Name("plain_ext".into()));
 }
 
 #[allow(clippy::duplicated_attributes)]

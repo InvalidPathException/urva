@@ -227,6 +227,7 @@ mod tests {
         type Lock = Version;
         const VERSION_FIELD: &'static str = "version";
         const INDEX_SPECS: &'static [&'static crate::IndexSpec] = &[];
+        const EXTERNAL_INDEX_NAMES: &'static [&'static str] = &[];
     }
 
     #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
@@ -242,6 +243,7 @@ mod tests {
         type Lock = ();
         const VERSION_FIELD: &'static str = "version";
         const INDEX_SPECS: &'static [&'static crate::IndexSpec] = &[];
+        const EXTERNAL_INDEX_NAMES: &'static [&'static str] = &[];
     }
 
     fn order() -> Order {

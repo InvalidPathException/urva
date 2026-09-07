@@ -4,7 +4,9 @@ use syn::ext::IdentExt;
 use syn::spanned::Spanned;
 use syn::{Data, DeriveInput, Fields, Ident, LitStr, Type, Visibility};
 
-use crate::index_attr::{IndexDecl, KeyDecl, KeyKindDecl, PartialDecl};
+use crate::index_attr::{
+    EXTERNAL_INDEX_FORM, ExternalIndexDecl, IndexDecl, KeyDecl, KeyKindDecl, PartialDecl,
+};
 
 pub(crate) fn same_ident(a: &Ident, b: &Ident) -> bool {
     a.unraw() == b.unraw()
@@ -50,6 +52,7 @@ pub struct EntityModel {
     pub id_ty: Type,
     pub version: Option<String>,
     pub indexes: Vec<IndexDecl>,
+    pub external_indexes: Vec<ExternalIndexDecl>,
 }
 
 pub fn parse_struct(input: &DeriveInput, derive_name: &str) -> syn::Result<StructModel> {
@@ -284,12 +287,19 @@ pub fn parse_entity(input: &DeriveInput) -> syn::Result<EntityModel> {
     }
 
     let mut indexes = Vec::new();
+    let mut external_indexes = Vec::new();
     let mut errors: Vec<syn::Error> = Vec::new();
     for attr in &input.attrs {
         if attr.path().is_ident("index") {
             match attr.parse_args::<IndexDecl>() {
                 Ok(decl) => indexes.push(decl),
                 Err(error) => errors.push(error),
+            }
+        } else if attr.path().is_ident("external_index") {
+            match attr.parse_args::<ExternalIndexDecl>() {
+                Ok(decl) => external_indexes.push(decl),
+                Err(error) if attr.meta.require_list().is_ok() => errors.push(error),
+                Err(_) => errors.push(syn::Error::new(attr.span(), EXTERNAL_INDEX_FORM)),
             }
         }
     }
@@ -301,6 +311,7 @@ pub fn parse_entity(input: &DeriveInput) -> syn::Result<EntityModel> {
         id_ty,
         version,
         indexes,
+        external_indexes,
     };
     validate_indexes(&model)?;
     Ok(model)
@@ -316,6 +327,8 @@ fn reject_misplaced_attrs(input: &DeriveInput) -> syn::Result<()> {
                 "`#[entity]` applies to the struct, not a field"
             } else if attr.path().is_ident("index") {
                 "`#[index]` applies to the struct, not a field"
+            } else if attr.path().is_ident("external_index") {
+                "`#[external_index]` applies to the struct, not a field"
             } else {
                 continue;
             };
@@ -339,16 +352,55 @@ fn combine_errors(errors: Vec<syn::Error>) -> syn::Result<()> {
 }
 
 fn validate_indexes(model: &EntityModel) -> syn::Result<()> {
+    let mut errors: Vec<syn::Error> = Vec::new();
+
+    struct DeclaredName {
+        server: String,
+        span: Span,
+        explicit: bool,
+    }
+    let declared: Vec<DeclaredName> = model
+        .indexes
+        .iter()
+        .map(|d| DeclaredName {
+            server: d.ident.unraw().to_string(),
+            span: d.ident.span(),
+            explicit: false,
+        })
+        .chain(model.external_indexes.iter().map(|e| DeclaredName {
+            server: e.server_name(),
+            span: e.name_span(),
+            explicit: e.name.is_some(),
+        }))
+        .collect();
+    let mut seen: Vec<&DeclaredName> = Vec::new();
+    for decl in &declared {
+        if let Some(first) = seen
+            .iter()
+            .find(|s| s.server == decl.server && (s.explicit || decl.explicit))
+        {
+            let mut err = syn::Error::new(
+                decl.span,
+                format!("duplicate server-side index name `{}`", decl.server),
+            );
+            err.combine(syn::Error::new(first.span, "first declared here"));
+            errors.push(err);
+            continue;
+        }
+        seen.push(decl);
+    }
+
     let field_named_wildcard = model
         .base
         .fields
         .iter()
         .any(|f| f.ident.unraw() == "wildcard" && f.unstorable.is_none());
-    let errors = model
-        .indexes
-        .iter()
-        .filter_map(|decl| validate_decl(model, decl, field_named_wildcard).err())
-        .collect();
+    errors.extend(
+        model
+            .indexes
+            .iter()
+            .filter_map(|decl| validate_decl(model, decl, field_named_wildcard).err()),
+    );
     combine_errors(errors)
 }
 

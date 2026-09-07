@@ -31,6 +31,11 @@ pub fn entity_tokens(model: &EntityModel) -> syn::Result<TokenStream> {
         let r = &decl.ident;
         quote! { #index_mod::#r.spec() }
     });
+    let external_names: Vec<String> = model
+        .external_indexes
+        .iter()
+        .map(|e| e.server_name())
+        .collect();
 
     let (lock, version_field, marker) = match &model.version {
         Some(name) => (
@@ -79,6 +84,7 @@ pub fn entity_tokens(model: &EntityModel) -> syn::Result<TokenStream> {
             type Lock = #lock;
             const VERSION_FIELD: &'static str = #version_field;
             const INDEX_SPECS: &'static [&'static ::urva::IndexSpec] = &[#(#spec_refs),*];
+            const EXTERNAL_INDEX_NAMES: &'static [&'static str] = &[#(#external_names),*];
         }
 
         #[automatically_derived]
@@ -323,6 +329,21 @@ fn index_module_tokens(model: &EntityModel, index_mod: &Ident) -> syn::Result<To
                     bits: #bits,
                     min: #min,
                     max: #max,
+                };
+                ::urva::__private::index_ref_from_spec(&SPEC)
+            };
+        });
+    }
+
+    for external in &model.external_indexes {
+        let name = external.server_name();
+        let external = &external.ident;
+        let span = external.span();
+        items.extend(quote_spanned! {span=>
+            pub const #external: ::urva::IndexRef<#ident> = {
+                const SPEC: ::urva::IndexSpec = ::urva::IndexSpec {
+                    name: #name,
+                    ..::urva::IndexSpec::DEFAULT
                 };
                 ::urva::__private::index_ref_from_spec(&SPEC)
             };

@@ -1,7 +1,7 @@
 error[E0592]: duplicate definitions with name `by_a`
- --> tests/compile_fail/duplicate_index_ident.rs:6:9
+ --> tests/compile_fail/duplicate_index_ident.rs:6:18
   |
 5 | #[index(by_a, keys(a))]
   |         ---- other definition for `by_a`
-6 | #[index(by_a, keys(b))]
-  |         ^^^^ duplicate definitions for `by_a`
+6 | #[external_index(by_a)]
+  |                  ^^^^ duplicate definitions for `by_a`

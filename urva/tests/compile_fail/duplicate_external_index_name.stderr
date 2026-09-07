@@ -1,0 +1,23 @@
+error: duplicate server-side index name `legacy-geo.1`
+ --> tests/compile_fail/duplicate_external_index_name.rs:6:32
+  |
+6 | #[external_index(geo_b, name = "legacy-geo.1")]
+  |                                ^^^^^^^^^^^^^^
+
+error: first declared here
+ --> tests/compile_fail/duplicate_external_index_name.rs:5:32
+  |
+5 | #[external_index(geo_a, name = "legacy-geo.1")]
+  |                                ^^^^^^^^^^^^^^
+
+error: duplicate server-side index name `by_a`
+  --> tests/compile_fail/duplicate_external_index_name.rs:14:32
+   |
+14 | #[external_index(other, name = "by_a")]
+   |                                ^^^^^^
+
+error: first declared here
+  --> tests/compile_fail/duplicate_external_index_name.rs:13:9
+   |
+13 | #[index(by_a, keys(a))]
+   |         ^^^^

@@ -123,6 +123,7 @@ mod tests {
         type Lock = ();
         const VERSION_FIELD: &'static str = "version";
         const INDEX_SPECS: &'static [&'static crate::IndexSpec] = &[];
+        const EXTERNAL_INDEX_NAMES: &'static [&'static str] = &[];
     }
 
     fn docs() -> Vec<(usize, crate::Doc<Body>)> {

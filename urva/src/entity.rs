@@ -22,6 +22,9 @@ pub trait Entity:
     const INDEX_SPECS: &'static [&'static IndexSpec];
 
     #[doc(hidden)]
+    const EXTERNAL_INDEX_NAMES: &'static [&'static str];
+
+    #[doc(hidden)]
     fn index_models() -> Vec<IndexModel> {
         Self::INDEX_SPECS
             .iter()

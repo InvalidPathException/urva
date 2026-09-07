@@ -1,0 +1,5 @@
+error: `#[external_index]` applies to the struct, not a field
+ --> tests/compile_fail/external_index_on_field.rs:6:5
+  |
+6 |     #[external_index(legacy_total)]
+  |     ^

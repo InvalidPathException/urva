@@ -23,6 +23,62 @@ pub struct IndexDecl {
     pub max: Option<(f64, Span)>,
 }
 
+pub const EXTERNAL_INDEX_FORM: &str =
+    "expected `#[external_index(<ident>)]` or `#[external_index(<ident>, name = \"...\")]`";
+
+#[derive(Clone)]
+pub struct ExternalIndexDecl {
+    pub ident: Ident,
+    pub name: Option<LitStr>,
+}
+
+impl ExternalIndexDecl {
+    pub fn server_name(&self) -> String {
+        match &self.name {
+            Some(lit) => lit.value(),
+            None => self.ident.unraw().to_string(),
+        }
+    }
+
+    pub fn name_span(&self) -> Span {
+        match &self.name {
+            Some(lit) => lit.span(),
+            None => self.ident.span(),
+        }
+    }
+}
+
+impl Parse for ExternalIndexDecl {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        if !input.peek(Ident) {
+            return Err(syn::Error::new(input.span(), EXTERNAL_INDEX_FORM));
+        }
+        let ident: Ident = input.parse()?;
+        let mut name = None;
+        if input.peek(Token![,]) {
+            input.parse::<Token![,]>()?;
+            let option: Ident = input.parse().map_err(|_| {
+                syn::Error::new(input.span(), "expected `name = \"...\"` after the ident")
+            })?;
+            if option != "name" {
+                return Err(syn::Error::new(
+                    option.span(),
+                    format!(
+                        "unknown `external_index` option `{option}`. The one option is `name = \"...\"`"
+                    ),
+                ));
+            }
+            input.parse::<Token![=]>()?;
+            let lit: LitStr = input.parse()?;
+            name = Some(lit);
+        }
+        if !input.is_empty() {
+            return Err(syn::Error::new(input.span(), EXTERNAL_INDEX_FORM));
+        }
+        Ok(ExternalIndexDecl { ident, name })
+    }
+}
+
 #[derive(Clone)]
 pub struct CollationDecl {
     pub locale: String,
