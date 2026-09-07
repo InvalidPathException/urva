@@ -1,6 +1,8 @@
 use mongodb::bson::Bson;
 use mongodb::error::{ErrorKind, WriteFailure};
 
+use crate::lifecycle::IndexDiff;
+
 pub type Result<T, E = Error> = std::result::Result<T, E>;
 
 #[derive(Debug, Clone, thiserror::Error)]
@@ -28,6 +30,9 @@ pub enum Error {
         collection: &'static str,
         id: Box<Bson>,
     },
+
+    #[error("index drift detected: {0:?}")]
+    IndexDrift(Box<IndexDiff>),
 }
 
 impl From<mongodb::bson::ser::Error> for Error {

@@ -2,9 +2,9 @@ use futures_util::TryStreamExt;
 use mongodb::IndexModel;
 use mongodb::bson::{Bson, Document};
 
-use crate::Result;
 use crate::entity::Entity;
 use crate::store::Store;
+use crate::{Error, Result};
 
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct IndexDiff {
@@ -64,6 +64,39 @@ impl<E: Entity> Store<E> {
 
     pub async fn diff_indexes(&self) -> Result<IndexDiff> {
         Ok(compute_diff::<E>(&self.list_indexes().await?))
+    }
+
+    pub async fn sync_indexes(&self) -> Result<IndexDiff> {
+        let diff = self.diff_indexes().await?;
+        let drifted_drops = diff
+            .name_drift
+            .iter()
+            .map(|drift| &drift.actual)
+            .filter(|actual| !E::EXTERNAL_INDEX_NAMES.contains(&actual.as_str()));
+        for name in diff
+            .to_drop
+            .iter()
+            .chain(&diff.mismatched)
+            .chain(drifted_drops)
+        {
+            self.raw().drop_index(name).await?;
+        }
+        self.create_named(
+            diff.to_create
+                .iter()
+                .chain(&diff.mismatched)
+                .chain(diff.name_drift.iter().map(|drift| &drift.expected)),
+        )
+        .await?;
+        Ok(diff)
+    }
+
+    pub async fn verify_indexes(&self) -> Result<()> {
+        let diff = self.diff_indexes().await?;
+        if diff.fails_verify() {
+            return Err(Error::IndexDrift(Box::new(diff)));
+        }
+        Ok(())
     }
 
     async fn list_indexes(&self) -> Result<Vec<Document>> {
