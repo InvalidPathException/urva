@@ -7,6 +7,7 @@ mod error;
 mod field;
 mod filter;
 mod index;
+pub mod lifecycle;
 mod ops;
 mod sort;
 mod store;
@@ -22,6 +23,7 @@ pub use field::{
 };
 pub use filter::{FieldValue, Filter, Nested, all, any, text};
 pub use index::{HintFor, IndexRef};
+pub use lifecycle::{IndexDiff, NameDrift};
 pub use ops::count::{CountBuilder, EstimatedCountBuilder};
 pub use ops::delete::{DeleteManyBuilder, DeleteOneBuilder};
 pub use ops::find::{FindBuilder, FindOneBuilder};

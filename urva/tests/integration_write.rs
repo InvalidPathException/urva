@@ -755,11 +755,7 @@ async fn hints_reach_the_server_on_write_builders() {
         return;
     };
     let store: Store<Order> = t.db.store();
-    store
-        .raw()
-        .create_indexes(Order::index_models())
-        .await
-        .unwrap();
+    store.create_indexes().await.unwrap();
 
     store
         .insert_many([order("open", 1), order("open", 2), order("open", 3)])
@@ -809,11 +805,7 @@ async fn hints_reach_the_server_on_write_builders() {
     assert!(matches!(bogus, Err(Error::Driver(_))), "{bogus:?}");
 
     let notes: Store<Note> = t.db.store();
-    notes
-        .raw()
-        .create_indexes(Note::index_models())
-        .await
-        .unwrap();
+    notes.create_indexes().await.unwrap();
     notes
         .insert_with_id("h1".into(), Note { text: "old".into() })
         .await

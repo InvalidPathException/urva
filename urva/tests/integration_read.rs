@@ -321,11 +321,7 @@ async fn text_search_finds_indexed_documents() {
         return;
     };
     let store: Store<Note> = t.db.store();
-    store
-        .raw()
-        .create_indexes(Note::index_models())
-        .await
-        .unwrap();
+    store.create_indexes().await.unwrap();
     let a = store
         .insert(Note {
             body: "red kayak on the river".into(),

@@ -488,6 +488,7 @@ async fn update_composition_fuzz_agrees_with_the_server() {
 
 #[derive(Entity, Serialize, Deserialize, Debug, Clone)]
 #[entity(collection = "slots", versioned)]
+#[index(uniq_key, keys(key), unique)]
 pub struct Slot {
     pub key: i64,
     pub total: i64,
@@ -495,23 +496,6 @@ pub struct Slot {
 
 fn slot(key: i64) -> Slot {
     Slot { key, total: 0 }
-}
-
-async fn unique_key_index(store: &Store<Slot>) {
-    store
-        .raw()
-        .create_index(
-            mongodb::IndexModel::builder()
-                .keys(mongodb::bson::doc! { "key": 1 })
-                .options(
-                    mongodb::options::IndexOptions::builder()
-                        .unique(true)
-                        .build(),
-                )
-                .build(),
-        )
-        .await
-        .unwrap();
 }
 
 const BATCH_BOUNDARY: usize = 100_000;
@@ -531,7 +515,7 @@ async fn insert_many_failure_indices_are_global_across_driver_batches() {
         return;
     };
     let store: Store<Slot> = t.db.store();
-    unique_key_index(&store).await;
+    store.create_indexes().await.unwrap();
     let seeds = dup_positions(TOTAL).into_iter().map(|i| slot(i as i64));
     store.insert_many(seeds).await.unwrap();
 
@@ -563,7 +547,7 @@ async fn insert_many_failure_indices_are_global_across_driver_batches() {
     );
 
     t.db.drop().await.unwrap();
-    unique_key_index(&store).await;
+    store.create_indexes().await.unwrap();
     let first_dup = BATCH_BOUNDARY + 7;
     store.insert(slot(first_dup as i64)).await.unwrap();
     let failure = store
