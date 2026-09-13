@@ -21,9 +21,9 @@ URVA_TEST_URI='mongodb://localhost:27018/?directConnection=true' URVA_REQUIRE_IN
 docker compose down
 ```
 
-Before committing, run what CI will run:
+On top of the above, CI also runs these, which you should run before commiting:
 
 ```sh
 cargo fmt --all --check
-cargo clippy --workspace --all-targets -- -D warnings
+cargo clippy --workspace --all-targets -- -D warnings -A clippy::duplicated_attributes
 ```
