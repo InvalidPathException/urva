@@ -18,8 +18,10 @@ crate::ops::builder!(
         let action = collection.find(filter?).with_options(options);
         Ok(match session {
             Some(tx) => {
-                let mut cursor = action.session(tx.raw()).await?;
-                cursor.stream(tx.raw()).try_collect().await?
+                let cursor = action.session(tx.raw()).await;
+                let mut cursor = tx.note(cursor)?;
+                let docs = cursor.stream(tx.raw()).try_collect().await;
+                tx.note(docs)?
             }
             None => action.await?.try_collect().await?,
         })
@@ -44,8 +46,10 @@ impl<E: Entity> FindBuilder<E, Attached<'_>> {
             .find(self.filter?)
             .with_options(self.options)
             .session(tx.raw())
-            .await?;
-        Ok(TransactionCursor { cursor })
+            .await;
+        Ok(TransactionCursor {
+            cursor: tx.note(cursor)?,
+        })
     }
 }
 
@@ -57,7 +61,7 @@ impl<E: Entity> TransactionCursor<E> {
     #[allow(clippy::should_implement_trait)]
     pub async fn next(&mut self, tx: &mut Transaction) -> Option<Result<Doc<E>>> {
         let item = self.cursor.next(tx.raw()).await?;
-        Some(item.map_err(Into::into))
+        Some(tx.note(item).map_err(Into::into))
     }
 }
 

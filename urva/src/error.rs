@@ -31,6 +31,12 @@ pub enum Error {
         id: Box<Bson>,
     },
 
+    #[error("transaction gave up after {attempts} attempts: {last}")]
+    TransactionTimeout {
+        attempts: u32,
+        last: mongodb::error::Error,
+    },
+
     #[error("transaction commit failed: {0}")]
     CommitFailed(mongodb::error::Error),
 

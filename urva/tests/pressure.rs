@@ -1,15 +1,35 @@
 mod common;
 
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicI64, AtomicU32, Ordering};
 
 use common::TestDb;
+use mongodb::bson::doc;
 use urva::prelude::*;
 
 #[derive(Entity, Serialize, Deserialize, Debug, Clone)]
 #[entity(collection = "counters", versioned)]
 pub struct Counter {
     pub total: i64,
+}
+
+use counter_fields as c;
+
+fn counter() -> Counter {
+    Counter { total: 0 }
+}
+
+async fn supports_transactions(t: &TestDb) -> bool {
+    let hello = t.db.run_command(doc! { "hello": 1 }).await.expect("hello");
+    let is_replica_set = hello.contains_key("setName");
+    if !is_replica_set {
+        assert!(
+            std::env::var("URVA_REQUIRE_INTEGRATION").is_err(),
+            "URVA_REQUIRE_INTEGRATION is set but the server is standalone"
+        );
+        eprintln!("server is standalone; skipping transaction test");
+    }
+    is_replica_set
 }
 
 #[tokio::test]
@@ -494,6 +514,8 @@ pub struct Slot {
     pub total: i64,
 }
 
+use slot_fields as sl;
+
 fn slot(key: i64) -> Slot {
     Slot { key, total: 0 }
 }
@@ -687,6 +709,310 @@ async fn array_filter_fuzz_matches_in_memory_model() {
         actual.sort_unstable();
         assert_eq!(actual, expected, "trial {trial}: {node:?}");
     }
+
+    t.drop().await;
+}
+
+#[tokio::test]
+async fn concurrent_transactions_save_same_document() {
+    const TASKS: usize = 4;
+
+    let Some(t) = TestDb::connect("pressure_txn_saves").await else {
+        return;
+    };
+    if !supports_transactions(&t).await {
+        return;
+    }
+    let store: Store<Counter> = t.db.store();
+    let id = *store.insert(counter()).await.unwrap().id();
+
+    let client = t.db.client().clone();
+    let db_name = t.db.name().to_string();
+    let attempts = Arc::new(AtomicU32::new(0));
+    let barrier = Arc::new(tokio::sync::Barrier::new(TASKS));
+
+    let mut tasks = Vec::new();
+    for _ in 0..TASKS {
+        let client = client.clone();
+        let db_name = db_name.clone();
+        let attempts = attempts.clone();
+        let barrier = barrier.clone();
+        tasks.push(tokio::spawn(async move {
+            let store: Store<Counter> = client.database(&db_name).store();
+            let (store, attempts) = (&store, &attempts);
+            let mut first_attempt = true;
+            client
+                .transaction(|mut tx| {
+                    let barrier = first_attempt.then(|| barrier.clone());
+                    first_attempt = false;
+                    async move {
+                        attempts.fetch_add(1, Ordering::SeqCst);
+                        let mut current = store
+                            .find_one(c::_id.eq(id))
+                            .session(&mut tx)
+                            .await?
+                            .expect("counter exists");
+                        if let Some(barrier) = barrier {
+                            barrier.wait().await;
+                        }
+                        current.total += 1;
+                        store.save(&mut current).session(&mut tx).await?;
+                        Ok::<_, Error>((tx, ()))
+                    }
+                })
+                .await
+        }));
+    }
+    for task in tasks {
+        task.await.unwrap().unwrap();
+    }
+
+    let after = store.find_one(c::_id.eq(id)).await.unwrap().unwrap();
+    assert_eq!(after.total, TASKS as i64, "all transactions committed");
+    assert_eq!(
+        after.version().value(),
+        TASKS as i64 + 1,
+        "one version step per committed save"
+    );
+    let attempts = attempts.load(Ordering::SeqCst);
+    assert!(
+        attempts >= (TASKS + 1) as u32,
+        "the transient retry path ran (attempts: {attempts})"
+    );
+
+    t.drop().await;
+}
+
+#[tokio::test]
+async fn chaos_mix_never_loses_or_invents_an_update() {
+    const KEYS: i64 = 4;
+    const TASKS: usize = 12;
+    const OPS: usize = 150;
+
+    let Some(t) = TestDb::connect("review_chaos").await else {
+        return;
+    };
+    if !supports_transactions(&t).await {
+        return;
+    }
+    let store: Store<Slot> = t.db.store();
+    store.create_indexes().await.unwrap();
+    for k in 0..KEYS {
+        store.insert(slot(k)).await.unwrap();
+    }
+
+    let applied = Arc::new(AtomicI64::new(0));
+    let conflicts = Arc::new(AtomicU32::new(0));
+    let mut tasks = Vec::new();
+    for task in 0..TASKS {
+        let store = store.clone();
+        let client = t.db.client().clone();
+        let applied = applied.clone();
+        let conflicts = conflicts.clone();
+        tasks.push(tokio::spawn(async move {
+            let mut rng = (task as u64 + 1).wrapping_mul(0x9E37_79B9_7F4A_7C15);
+            for _ in 0..OPS {
+                rng ^= rng << 13;
+                rng ^= rng >> 7;
+                rng ^= rng << 17;
+                let key = (rng % KEYS as u64) as i64;
+                let delta: i64 = match (rng >> 8) % 8 {
+                    0 => {
+                        let mut e = store.find_one(sl::key.eq(key)).await.unwrap().unwrap();
+                        e.total += 1;
+                        match store.save(&mut e).await {
+                            Ok(()) => 1,
+                            Err(Error::VersionConflict { .. }) => {
+                                conflicts.fetch_add(1, Ordering::Relaxed);
+                                0
+                            }
+                            Err(other) => panic!("{other:?}"),
+                        }
+                    }
+                    1 | 4 | 5 | 6 => {
+                        let store = &store;
+                        client
+                            .transaction(|mut tx| async move {
+                                let mut e = store
+                                    .find_one(sl::key.eq(key))
+                                    .session(&mut tx)
+                                    .await?
+                                    .unwrap();
+                                e.total += 1;
+                                store.save(&mut e).session(&mut tx).await?;
+                                Ok::<_, Error>((tx, 1))
+                            })
+                            .await
+                            .unwrap()
+                    }
+                    2 => {
+                        let store = &store;
+                        client
+                            .transaction(|mut tx| async move {
+                                let e = store
+                                    .find_one(sl::key.eq(key))
+                                    .session(&mut tx)
+                                    .await?
+                                    .unwrap();
+                                let old = e.total;
+                                store.delete(&e).session(&mut tx).await?;
+                                store.insert(slot(e.key)).session(&mut tx).await?;
+                                Ok::<_, Error>((tx, -old))
+                            })
+                            .await
+                            .unwrap()
+                    }
+                    _ => {
+                        let e = store.find_one(sl::key.eq(key)).await.unwrap().unwrap();
+                        let res = store
+                            .update_one(
+                                sl::key.eq(key).and(sl::version.eq(e.version())),
+                                sl::total.inc(1).and(sl::version.bump()),
+                            )
+                            .await
+                            .unwrap();
+                        res.matched_count as i64
+                    }
+                };
+                applied.fetch_add(delta, Ordering::Relaxed);
+            }
+        }));
+    }
+    for task in tasks {
+        task.await.unwrap();
+    }
+
+    let docs = store.find(Filter::empty()).await.unwrap();
+    assert_eq!(docs.len(), KEYS as usize, "one document per key survives");
+    let sum: i64 = docs.iter().map(|d| d.total).sum();
+    assert_eq!(
+        sum,
+        applied.load(Ordering::Relaxed),
+        "no lost or invented update"
+    );
+    eprintln!(
+        "chaos: sum={sum} plain-conflicts={}",
+        conflicts.load(Ordering::Relaxed)
+    );
+
+    t.drop().await;
+}
+
+#[tokio::test]
+async fn transfer_chaos_keeps_the_sum_and_per_account_ledgers() {
+    const ACCOUNTS: i64 = 5;
+    const START: i64 = 1_000;
+    const TASKS: usize = 10;
+    const OPS: usize = 60;
+
+    let Some(t) = TestDb::connect("review_transfer_chaos").await else {
+        return;
+    };
+    if !supports_transactions(&t).await {
+        return;
+    }
+    let store: Store<Slot> = t.db.store();
+    store.create_indexes().await.unwrap();
+    for k in 0..ACCOUNTS {
+        store
+            .insert(Slot {
+                key: k,
+                total: START,
+            })
+            .await
+            .unwrap();
+    }
+
+    let ledger: Arc<Vec<AtomicI64>> = Arc::new((0..ACCOUNTS).map(|_| AtomicI64::new(0)).collect());
+    let version_conflicts = Arc::new(AtomicU32::new(0));
+    let attempts = Arc::new(AtomicU32::new(0));
+    let mut tasks = Vec::new();
+    for task in 0..TASKS {
+        let store = store.clone();
+        let client = t.db.client().clone();
+        let ledger = ledger.clone();
+        let version_conflicts = version_conflicts.clone();
+        let attempts = attempts.clone();
+        tasks.push(tokio::spawn(async move {
+            let mut rng = Lcg(task as u64 * 7919 + 1);
+            for _ in 0..OPS {
+                let from = rng.below(ACCOUNTS as u64) as i64;
+                let to = (from + 1 + rng.below(ACCOUNTS as u64 - 1) as i64) % ACCOUNTS;
+                let amount = rng.below(50) as i64;
+                match rng.below(5) {
+                    0 => loop {
+                        let mut a = store.find_one(sl::key.eq(from)).await.unwrap().unwrap();
+                        a.total += 1;
+                        match store.save(&mut a).await {
+                            Ok(()) => {
+                                ledger[from as usize].fetch_add(1, Ordering::Relaxed);
+                                break;
+                            }
+                            Err(Error::VersionConflict { .. }) => continue,
+                            Err(other) => panic!("{other:?}"),
+                        }
+                    },
+                    _ => loop {
+                        let (store, attempts) = (&store, &attempts);
+                        let outcome = client
+                            .transaction(|mut tx| async move {
+                                attempts.fetch_add(1, Ordering::Relaxed);
+                                let mut src = store
+                                    .find_one(sl::key.eq(from))
+                                    .session(&mut tx)
+                                    .await?
+                                    .unwrap();
+                                let mut dst = store
+                                    .find_one(sl::key.eq(to))
+                                    .session(&mut tx)
+                                    .await?
+                                    .unwrap();
+                                src.total -= amount;
+                                dst.total += amount;
+                                store.save(&mut src).session(&mut tx).await?;
+                                store.save(&mut dst).session(&mut tx).await?;
+                                Ok::<_, Error>((tx, ()))
+                            })
+                            .await;
+                        match outcome {
+                            Ok(()) => {
+                                ledger[from as usize].fetch_sub(amount, Ordering::Relaxed);
+                                ledger[to as usize].fetch_add(amount, Ordering::Relaxed);
+                                break;
+                            }
+                            Err(Error::VersionConflict { .. }) => {
+                                version_conflicts.fetch_add(1, Ordering::Relaxed);
+                                continue;
+                            }
+                            Err(other) => panic!("{other:?}"),
+                        }
+                    },
+                }
+            }
+        }));
+    }
+    for task in tasks {
+        task.await.unwrap();
+    }
+
+    let docs = store.find(Filter::empty()).await.unwrap();
+    assert_eq!(docs.len(), ACCOUNTS as usize);
+    let sum: i64 = docs.iter().map(|d| d.total).sum();
+    let minted: i64 = ledger.iter().map(|l| l.load(Ordering::Relaxed)).sum();
+    assert_eq!(sum, ACCOUNTS * START + minted, "money is conserved");
+    for d in &docs {
+        let expected = START + ledger[d.key as usize].load(Ordering::Relaxed);
+        assert_eq!(
+            d.total, expected,
+            "account {} matches its ledger of committed transfers",
+            d.key
+        );
+    }
+    eprintln!(
+        "transfer chaos: attempts={} version_conflicts={}",
+        attempts.load(Ordering::Relaxed),
+        version_conflicts.load(Ordering::Relaxed)
+    );
 
     t.drop().await;
 }

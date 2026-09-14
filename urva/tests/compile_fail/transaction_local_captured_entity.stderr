@@ -1,0 +1,21 @@
+error[E0507]: cannot move out of `order`, a captured variable in an `FnMut` closure
+  --> tests/compile_fail/transaction_local_captured_entity.rs:11:31
+   |
+ 9 | async fn bypass(client: &urva::mongodb::Client, orders: &Store<Order>, order: &mut Doc<Order>) -> Result<()> {
+   |                                                                        -----
+   |                                                                        |
+   |                                                                        captured outer variable
+   |                                                                        move occurs because `order` has type `&mut urva::Doc<Order>`, which does not implement the `Copy` trait
+10 |     client
+11 |         .transaction(|mut tx| async move {
+   |                      -------- ^^^^^^^^^^ `order` is moved here
+   |                      |
+   |                      captured by this `FnMut` closure
+12 |             order.total += 1;
+   |             ----- variable moved due to use in coroutine
+   |
+help: `Fn` and `FnMut` closures require captured values to be able to be consumed multiple times, but `FnOnce` closures may consume them only once
+  --> src/transaction.rs
+   |
+   |         F: FnMut(Transaction) -> Fut,
+   |            ^^^^^^^^^^^^^^^^^^^^^^^^^

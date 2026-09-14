@@ -1,0 +1,20 @@
+error: captured variable cannot escape `FnMut` closure body
+  --> tests/compile_fail/transaction_context_escape.rs:6:27
+   |
+ 4 |       let mut stash: Option<Transaction> = None;
+   |           --------- variable defined here
+ 5 |       let _ = client
+ 6 |           .transaction(|tx| async {
+   |  _________________________-_^
+   | |                         |
+   | |                         inferred to be a `FnMut` closure
+ 7 | |             stash = Some(tx);
+   | |             ----- variable captured here
+ 8 | |             Err::<(Transaction, ()), urva::Error>(Error::InvalidUpdate {
+ 9 | |                 message: String::new(),
+10 | |             })
+11 | |         })
+   | |_________^ returns an `async` block that contains a reference to a captured variable, which then escapes the closure body
+   |
+   = note: `FnMut` closures only have access to their captured variables while they are executing...
+   = note: ...therefore, they cannot allow references to captured variables to escape

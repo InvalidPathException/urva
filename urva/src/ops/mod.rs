@@ -198,7 +198,10 @@ macro_rules! setter {
 macro_rules! run {
     ($action:expr, $tx:expr) => {
         match $tx {
-            Some(tx) => $action.session(tx.raw()).await,
+            Some(tx) => {
+                let result = $action.session(tx.raw()).await;
+                tx.note(result)
+            }
             None => $action.await,
         }
     };
