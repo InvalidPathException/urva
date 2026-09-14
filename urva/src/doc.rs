@@ -7,17 +7,30 @@ use serde::ser::Error as _;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::entity::Entity;
+use crate::transaction::{Outcome, OutcomeState};
 use crate::version::Version;
 
 pub struct Doc<E: Entity> {
     pub(crate) id: E::Id,
     pub(crate) version: E::Lock,
+    pub(crate) pending: Option<Pending<E::Lock>>,
     pub body: E,
+}
+
+#[derive(Clone)]
+pub(crate) struct Pending<L> {
+    next: L,
+    outcome: Outcome,
 }
 
 impl<E: Entity> Doc<E> {
     pub(crate) fn new(id: E::Id, version: E::Lock, body: E) -> Self {
-        Doc { id, version, body }
+        Doc {
+            id,
+            version,
+            pending: None,
+            body,
+        }
     }
 
     pub fn id(&self) -> &E::Id {
@@ -25,7 +38,34 @@ impl<E: Entity> Doc<E> {
     }
 
     pub fn version(&self) -> E::Lock {
-        self.version
+        match &self.pending {
+            Some(pending)
+                if matches!(
+                    pending.outcome.get(),
+                    OutcomeState::Pending | OutcomeState::Committed
+                ) =>
+            {
+                pending.next
+            }
+            _ => self.version,
+        }
+    }
+
+    pub(crate) fn settle(&mut self, next: E::Lock, outcome: Option<Outcome>) {
+        match outcome {
+            None => {
+                self.version = next;
+                self.pending = None;
+            }
+            Some(outcome) => {
+                if let Some(pending) = self.pending.take()
+                    && pending.outcome.get() == OutcomeState::Committed
+                {
+                    self.version = pending.next;
+                }
+                self.pending = Some(Pending { next, outcome });
+            }
+        }
     }
 
     pub fn into_body(self) -> E {
@@ -67,6 +107,7 @@ impl<E: Entity + Clone> Clone for Doc<E> {
         Doc {
             id: self.id.clone(),
             version: self.version,
+            pending: self.pending.clone(),
             body: self.body.clone(),
         }
     }

@@ -4,6 +4,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicI64, AtomicU32, Ordering};
 
 use common::TestDb;
+use futures_util::FutureExt;
 use mongodb::bson::doc;
 use urva::prelude::*;
 
@@ -1013,6 +1014,46 @@ async fn transfer_chaos_keeps_the_sum_and_per_account_ledgers() {
         attempts.load(Ordering::Relaxed),
         version_conflicts.load(Ordering::Relaxed)
     );
+
+    t.drop().await;
+}
+
+#[tokio::test]
+async fn panic_inside_a_transaction_body_restores_the_state() {
+    let Some(t) = TestDb::connect("review_txn_panic").await else {
+        return;
+    };
+    if !supports_transactions(&t).await {
+        return;
+    }
+    let store: Store<Slot> = t.db.store();
+    let client = t.db.client().clone();
+    let mut e = store.insert(slot(1)).await.unwrap();
+    let base = e.version();
+
+    let (store_ref, e_ref) = (&store, &e);
+    let attempt = client.transaction(|mut tx| async move {
+        let mut e = e_ref.clone();
+        e.total = 99;
+        store_ref.save(&mut e).session(&mut tx).await?;
+        if e.total == 99 {
+            panic!("body panics after a transactional write");
+        }
+        Ok::<_, Error>((tx, ()))
+    });
+    let outcome = std::panic::AssertUnwindSafe(attempt).catch_unwind().await;
+    assert!(outcome.is_err(), "the panic surfaces");
+    assert_eq!(
+        (e.total, e.version()),
+        (0, base),
+        "the panicking attempt restored the state"
+    );
+
+    e.total = 1;
+    store.save(&mut e).await.unwrap();
+    let stored = store.find_one(sl::key.eq(1)).await.unwrap().unwrap();
+    assert_eq!(stored.total, 1);
+    assert_eq!(stored.version().value(), 2);
 
     t.drop().await;
 }

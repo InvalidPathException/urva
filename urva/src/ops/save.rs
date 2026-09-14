@@ -283,17 +283,19 @@ impl<'e, E: Entity, X: Exec + 'e> IntoFuture for SaveBuilder<'e, E, X> {
             let conditional = extra.is_some();
             let (id, filter, replacement, next) = prepare_save(doc, extra)?;
             options.upsert = None;
-            let result = exec
+            let (result, outcome) = exec
                 .run(move |session| {
                     Box::pin(async move {
+                        let outcome = session.as_ref().map(|tx| tx.outcome());
                         let documents = collection.clone_with_type::<Document>();
                         let action = documents
                             .replace_one(filter, replacement)
                             .with_options(options);
-                        crate::ops::run!(action, session)
+                        (crate::ops::run!(action, session), outcome)
                     })
                 })
-                .await?;
+                .await;
+            let result = result?;
             if result.matched_count == 0 {
                 return Err(if conditional {
                     Error::ConditionFailed {
@@ -304,7 +306,7 @@ impl<'e, E: Entity, X: Exec + 'e> IntoFuture for SaveBuilder<'e, E, X> {
                     E::Lock::miss(E::COLLECTION, id)
                 });
             }
-            doc.version = next;
+            doc.settle(next, outcome);
             Ok(())
         })
     }

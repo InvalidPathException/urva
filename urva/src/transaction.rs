@@ -1,3 +1,4 @@
+use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -16,13 +17,50 @@ pub struct Transaction {
     started: Instant,
     transient: Arc<Mutex<Option<mongodb::error::Error>>>,
     first_failure: Arc<Mutex<Option<mongodb::error::Error>>>,
+    outcome: Outcome,
     park: Option<Park>,
 }
 
 type Park = Arc<Mutex<Option<ClientSession>>>;
 
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum OutcomeState {
+    Pending,
+    Committed,
+    Aborted,
+    Unknown,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct Outcome(Arc<AtomicU8>);
+
+impl Outcome {
+    fn new() -> Self {
+        Outcome(Arc::new(AtomicU8::new(OutcomeState::Pending as u8)))
+    }
+
+    pub(crate) fn get(&self) -> OutcomeState {
+        match self.0.load(Ordering::Acquire) {
+            0 => OutcomeState::Pending,
+            1 => OutcomeState::Committed,
+            2 => OutcomeState::Aborted,
+            _ => OutcomeState::Unknown,
+        }
+    }
+
+    fn settle(&self, state: OutcomeState) {
+        let _ = self.0.compare_exchange(
+            OutcomeState::Pending as u8,
+            state as u8,
+            Ordering::AcqRel,
+            Ordering::Acquire,
+        );
+    }
+}
+
 impl Drop for Transaction {
     fn drop(&mut self) {
+        self.outcome.settle(OutcomeState::Aborted);
         if let Some(park) = self.park.take()
             && let Some(session) = self.session.take()
         {
@@ -40,6 +78,7 @@ impl Transaction {
             started: Instant::now(),
             transient: Arc::default(),
             first_failure: Arc::default(),
+            outcome: Outcome::new(),
             park: None,
         })
     }
@@ -48,6 +87,10 @@ impl Transaction {
         self.session
             .as_mut()
             .expect("the session leaves only in Drop")
+    }
+
+    pub(crate) fn outcome(&self) -> Outcome {
+        self.outcome.clone()
     }
 
     pub(crate) fn note<T>(&self, result: mongodb::error::Result<T>) -> mongodb::error::Result<T> {
@@ -77,16 +120,18 @@ impl Transaction {
 
     pub async fn commit(mut self) -> Result<()> {
         if let Some(first) = self.take_first_failure() {
+            self.outcome.settle(OutcomeState::Aborted);
             let _ = self.session().abort_transaction().await;
             return Err(Error::Driver(first));
         }
         let started = self.started;
-        commit_with_retry(self.session(), started)
-            .await
-            .map_err(Error::CommitFailed)
+        let result = commit_with_retry(self.session(), started).await;
+        self.outcome.settle(commit_outcome(&result));
+        result.map_err(Error::CommitFailed)
     }
 
     pub async fn abort(mut self) -> Result<()> {
+        self.outcome.settle(OutcomeState::Aborted);
         Ok(self.session().abort_transaction().await?)
     }
 }
@@ -264,13 +309,25 @@ where
             last_transient = Some(noted);
             continue;
         }
-        match commit_with_retry(tx.session(), started).await {
+        let committed = commit_with_retry(tx.session(), started).await;
+        tx.outcome.settle(commit_outcome(&committed));
+        match committed {
             Ok(()) => return Ok(value),
             Err(error) if error.contains_label(TRANSIENT_TRANSACTION_ERROR) => {
                 last_transient = Some(error);
             }
             Err(error) => return Err(Error::CommitFailed(error).into()),
         }
+    }
+}
+
+fn commit_outcome(result: &mongodb::error::Result<()>) -> OutcomeState {
+    match result {
+        Ok(()) => OutcomeState::Committed,
+        Err(error) if error.contains_label(UNKNOWN_TRANSACTION_COMMIT_RESULT) => {
+            OutcomeState::Unknown
+        }
+        Err(_) => OutcomeState::Aborted,
     }
 }
 
