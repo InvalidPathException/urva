@@ -1,0 +1,11 @@
+error[E0599]: no method named `session` found for opaque type `impl Future<Output = Result<(), urva::Error>>` in the current scope
+  --> tests/compile_fail/transaction_no_lifecycle_verbs.rs:10:28
+   |
+10 |     store.create_indexes().session(tx).await?;
+   |                            ^^^^^^^ method not found in `impl Future<Output = Result<(), urva::Error>>`
+
+error[E0599]: no method named `session` found for struct `EstimatedCountBuilder<E>` in the current scope
+  --> tests/compile_fail/transaction_no_lifecycle_verbs.rs:11:38
+   |
+11 |     store.estimated_document_count().session(tx).await?;
+   |                                      ^^^^^^^ method not found in `EstimatedCountBuilder<Order>`

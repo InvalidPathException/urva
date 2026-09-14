@@ -3,7 +3,6 @@ use mongodb::{Collection, Database};
 use crate::doc::Doc;
 use crate::entity::{Entity, Unversioned};
 use crate::filter::{FieldValue, Filter};
-use crate::ops::ById;
 use crate::ops::count::{CountBuilder, EstimatedCountBuilder};
 use crate::ops::delete::{DeleteManyBuilder, DeleteOneBuilder};
 use crate::ops::find::{FindBuilder, FindOneBuilder};
@@ -12,6 +11,7 @@ use crate::ops::find_and_modify::{
 };
 use crate::ops::replace::ReplaceOneBuilder;
 use crate::ops::update::{UpdateManyBuilder, UpdateOneBuilder};
+use crate::ops::{ById, Detached};
 use crate::update::Update;
 
 pub struct Store<E: Entity> {
@@ -39,7 +39,7 @@ impl<E: Entity> Store<E> {
         FindOneBuilder::new(self.collection.clone(), filter)
     }
 
-    pub fn find_by_id(&self, id: impl FieldValue<E::Id>) -> FindOneBuilder<E, ById> {
+    pub fn find_by_id(&self, id: impl FieldValue<E::Id>) -> FindOneBuilder<E, Detached, ById> {
         FindOneBuilder::new(self.collection.clone(), id_filter(id))
     }
 
@@ -59,7 +59,7 @@ impl<E: Entity> Store<E> {
         &self,
         id: impl FieldValue<E::Id>,
         update: Update<E>,
-    ) -> UpdateOneBuilder<E, ById> {
+    ) -> UpdateOneBuilder<E, Detached, ById> {
         UpdateOneBuilder::new(self.collection.clone(), id_filter(id), update)
     }
 
@@ -79,7 +79,7 @@ impl<E: Entity> Store<E> {
         &self,
         id: impl FieldValue<E::Id>,
         update: Update<E>,
-    ) -> FindOneAndUpdateBuilder<E, ById> {
+    ) -> FindOneAndUpdateBuilder<E, Detached, ById> {
         FindOneAndUpdateBuilder::new(self.collection.clone(), id_filter(id), update)
     }
 
@@ -98,7 +98,7 @@ impl<E: Entity> Store<E> {
         &self,
         id: impl FieldValue<E::Id>,
         entity: &E,
-    ) -> FindOneAndReplaceBuilder<E, ById>
+    ) -> FindOneAndReplaceBuilder<E, Detached, ById>
     where
         E: Unversioned,
     {
@@ -116,7 +116,7 @@ impl<E: Entity> Store<E> {
         &self,
         id: impl FieldValue<E::Id>,
         entity: &E,
-    ) -> ReplaceOneBuilder<E, ById>
+    ) -> ReplaceOneBuilder<E, Detached, ById>
     where
         E: Unversioned,
     {
@@ -127,7 +127,7 @@ impl<E: Entity> Store<E> {
         DeleteOneBuilder::new(self.collection.clone(), filter)
     }
 
-    pub fn delete_by_id(&self, id: impl FieldValue<E::Id>) -> DeleteOneBuilder<E, ById> {
+    pub fn delete_by_id(&self, id: impl FieldValue<E::Id>) -> DeleteOneBuilder<E, Detached, ById> {
         DeleteOneBuilder::new(self.collection.clone(), id_filter(id))
     }
 

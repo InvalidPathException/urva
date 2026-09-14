@@ -1,0 +1,9 @@
+error[E0499]: cannot borrow `*tx` as mutable more than once at a time
+  --> tests/compile_fail/transaction_two_live_handles.rs:13:55
+   |
+12 |     let a = store.find_one(o::total.eq(1i64)).session(tx);
+   |                                                       -- first mutable borrow occurs here
+13 |     let b = store.find_one(o::total.eq(2i64)).session(tx);
+   |                                                       ^^ second mutable borrow occurs here
+14 |     let _ = a.await?;
+   |             - first borrow later used here

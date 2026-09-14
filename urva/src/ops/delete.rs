@@ -7,8 +7,9 @@ crate::ops::builder!(
     DeleteResult,
     [hint],
     {},
-    |collection, filter, options| {
-        Ok(collection.delete_one(filter?).with_options(options).await?)
+    |collection, filter, options, session| {
+        let action = collection.delete_one(filter?).with_options(options);
+        Ok(crate::ops::run!(action, session)?)
     }
 );
 
@@ -18,10 +19,8 @@ crate::ops::builder!(
     DeleteResult,
     [hint],
     {},
-    |collection, filter, options| {
-        Ok(collection
-            .delete_many(filter?)
-            .with_options(options)
-            .await?)
+    |collection, filter, options, session| {
+        let action = collection.delete_many(filter?).with_options(options);
+        Ok(crate::ops::run!(action, session)?)
     }
 );

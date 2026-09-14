@@ -13,11 +13,9 @@ crate::ops::builder!(
     u64,
     [hint, skip, limit: u64],
     {},
-    |collection, filter, options| {
-        Ok(collection
-            .count_documents(filter?)
-            .with_options(options)
-            .await?)
+    |collection, filter, options, session| {
+        let action = collection.count_documents(filter?).with_options(options);
+        Ok(crate::ops::run!(action, session)?)
     }
 );
 

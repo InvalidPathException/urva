@@ -13,11 +13,11 @@ help: the trait `HintFor<Order>` is not implemented for `IndexRef<User>`
    | impl<E: ?Sized> HintFor<E> for IndexRef<E> {
    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
    = help: for that trait implementation, expected `User`, found `Order`
-note: required by a bound in `FindBuilder::<E, P>::hint`
+note: required by a bound in `FindBuilder::<E, X, P>::hint`
   --> src/ops/mod.rs
    |
    |           pub fn hint(mut self, hint: impl crate::index::HintFor<E>) -> Self {
-   |                                            ^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `FindBuilder::<E, P>::hint`
+   |                                            ^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `FindBuilder::<E, X, P>::hint`
    |
   ::: src/ops/find.rs
    |

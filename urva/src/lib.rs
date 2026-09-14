@@ -11,6 +11,7 @@ pub mod lifecycle;
 mod ops;
 mod sort;
 mod store;
+mod transaction;
 mod update;
 mod version;
 
@@ -26,7 +27,7 @@ pub use index::{HintFor, IndexRef};
 pub use lifecycle::{IndexDiff, NameDrift};
 pub use ops::count::{CountBuilder, EstimatedCountBuilder};
 pub use ops::delete::{DeleteManyBuilder, DeleteOneBuilder};
-pub use ops::find::{FindBuilder, FindOneBuilder};
+pub use ops::find::{FindBuilder, FindOneBuilder, TransactionCursor};
 pub use ops::find_and_modify::{
     FindOneAndDeleteBuilder, FindOneAndReplaceBuilder, FindOneAndUpdateBuilder,
 };
@@ -34,9 +35,10 @@ pub use ops::partial::{Partial, PartialFailure, Summary};
 pub use ops::replace::ReplaceOneBuilder;
 pub use ops::save::{DeleteBuilder, InsertBuilder, InsertManyBuilder, SaveBuilder};
 pub use ops::update::{UpdateManyBuilder, UpdateOneBuilder};
-pub use ops::{ByFilter, ById};
+pub use ops::{Attached, ByFilter, ById, Detached};
 pub use sort::Sort;
 pub use store::{Store, StoreExt};
+pub use transaction::{Transaction, TransactionError, TransactionExt};
 pub use update::{ElementFilter, Numeric, NumericIn, Update, apply, element_filter};
 pub use version::Version;
 
@@ -61,8 +63,8 @@ pub mod prelude {
     pub use crate::bson::DateTime;
     pub use crate::bson::oid::ObjectId;
     pub use crate::{
-        Doc, Embedded, Entity, Error, Filter, HintFor, Result, Sort, Store, StoreExt, Update,
-        Version, all, any, apply, element_filter, text,
+        Doc, Embedded, Entity, Error, Filter, HintFor, Result, Sort, Store, StoreExt, Transaction,
+        TransactionError, TransactionExt, Update, Version, all, any, apply, element_filter, text,
     };
     pub use mongodb::options::ReturnDocument;
     pub use serde::{Deserialize, Serialize};

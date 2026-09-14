@@ -10,14 +10,14 @@ help: the trait `NewId` is implemented for `urva::prelude::ObjectId`
    |
    | impl NewId for mongodb::bson::oid::ObjectId {
    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-note: required by a bound in `UpdateOneBuilder::<E>::upsert`
+note: required by a bound in `UpdateOneBuilder::<E, X>::upsert`
   --> src/ops/mod.rs
    |
    |             pub fn upsert(mut self) -> Self
    |                    ------ required by a bound in this associated function
    |             where
    |                 E::Id: crate::doc::NewId,
-   |                        ^^^^^^^^^^^^^^^^^ required by this bound in `UpdateOneBuilder::<E>::upsert`
+   |                        ^^^^^^^^^^^^^^^^^ required by this bound in `UpdateOneBuilder::<E, X>::upsert`
    |
   ::: src/ops/update.rs
    |
@@ -37,14 +37,14 @@ help: the trait `NewId` is implemented for `urva::prelude::ObjectId`
    |
    | impl NewId for mongodb::bson::oid::ObjectId {
    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-note: required by a bound in `FindOneAndUpdateBuilder::<E>::upsert`
+note: required by a bound in `FindOneAndUpdateBuilder::<E, X>::upsert`
   --> src/ops/mod.rs
    |
    |             pub fn upsert(mut self) -> Self
    |                    ------ required by a bound in this associated function
    |             where
    |                 E::Id: crate::doc::NewId,
-   |                        ^^^^^^^^^^^^^^^^^ required by this bound in `FindOneAndUpdateBuilder::<E>::upsert`
+   |                        ^^^^^^^^^^^^^^^^^ required by this bound in `FindOneAndUpdateBuilder::<E, X>::upsert`
    |
   ::: src/ops/find_and_modify.rs
    |

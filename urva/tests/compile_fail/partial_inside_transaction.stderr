@@ -1,0 +1,7 @@
+error[E0599]: no method named `session` found for struct `InsertManyBuilder<'static, Order, Detached, Partial>` in the current scope
+  --> tests/compile_fail/partial_inside_transaction.rs:10:63
+   |
+10 |     let _ = store.insert_many([Order { total: 1 }]).partial().session(tx);
+   |                                                               ^^^^^^^ method not found in `InsertManyBuilder<'static, Order, Detached, Partial>`
+   |
+   = note: the method was found for `InsertManyBuilder<'e, E>`

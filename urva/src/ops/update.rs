@@ -10,15 +10,13 @@ macro_rules! update_builder {
         crate::ops::builder!(
             $name, UpdateOptions, UpdateResult, [$($setter),*],
             { update: Result<(Document, Vec<Document>)> = (update: Update<E>) => update.into_parts() },
-            |collection, filter, options| {
-                let (mut update, element_filters) = update?;
+            |collection, filter, options, session| {
                 let mut options = options;
-                crate::ops::merge_array_filters(&mut options.array_filters, element_filters);
+                let (mut update, element_filters) = update?;
                 crate::update::seed_on_upsert::<E>(&mut update, options.upsert);
-                Ok(collection
-                    .$verb(filter?, update)
-                    .with_options(options)
-                    .await?)
+                crate::ops::merge_array_filters(&mut options.array_filters, element_filters);
+                let action = collection.$verb(filter?, update).with_options(options);
+                Ok(crate::ops::run!(action, session)?)
             }
         );
     };

@@ -31,6 +31,9 @@ pub enum Error {
         id: Box<Bson>,
     },
 
+    #[error("transaction commit failed: {0}")]
+    CommitFailed(mongodb::error::Error),
+
     #[error("index drift detected: {0:?}")]
     IndexDrift(Box<IndexDiff>),
 }
@@ -48,6 +51,15 @@ impl From<mongodb::bson::de::Error> for Error {
 }
 
 impl Error {
+    pub fn is_transient(&self) -> bool {
+        match self {
+            Error::Driver(e) | Error::CommitFailed(e) => {
+                e.contains_label(mongodb::error::TRANSIENT_TRANSACTION_ERROR)
+            }
+            _ => false,
+        }
+    }
+
     pub fn is_duplicate_key(&self) -> bool {
         match self {
             Error::Driver(e) => driver_error_is_duplicate_key(e),
