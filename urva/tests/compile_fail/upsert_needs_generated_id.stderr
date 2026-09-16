@@ -51,3 +51,24 @@ note: required by a bound in `FindOneAndUpdateBuilder::<E, X>::upsert`
    | crate::ops::upsert_setter!(FindOneAndUpdateBuilder);
    | --------------------------------------------------- in this macro invocation
    = note: this error originates in the macro `crate::ops::upsert_setter` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0277]: `std::string::String` is not an id type the store can generate
+  --> tests/compile_fail/upsert_needs_generated_id.rs:22:10
+   |
+22 |         .update_one_with(n::text.eq("x"), n::text.set("y"), |m| m.upsert = Some(true))
+   |          ^^^^^^^^^^^^^^^ only `ObjectId` is generated, try explicitly supplying the id
+   |
+   = help: the trait `NewId` is not implemented for `std::string::String`
+help: the trait `NewId` is implemented for `urva::prelude::ObjectId`
+  --> src/doc.rs
+   |
+   | impl NewId for mongodb::bson::oid::ObjectId {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+note: required by a bound in `BulkBuilder::<E, X, R>::update_one_with`
+  --> src/ops/bulk.rs
+   |
+   |     pub fn update_one_with(
+   |            --------------- required by a bound in this associated function
+...
+   |         E::Id: NewId,
+   |                ^^^^^ required by this bound in `BulkBuilder::<E, X, R>::update_one_with`

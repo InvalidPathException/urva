@@ -25,6 +25,7 @@ pub use field::{
 pub use filter::{FieldValue, Filter, Nested, all, any, text};
 pub use index::{HintFor, IndexRef};
 pub use lifecycle::{IndexDiff, NameDrift};
+pub use ops::bulk::{BulkBuilder, BulkOutcome, BulkReport};
 pub use ops::count::{CountBuilder, EstimatedCountBuilder};
 pub use ops::delete::{DeleteManyBuilder, DeleteOneBuilder};
 pub use ops::find::{FindBuilder, FindOneBuilder, TransactionCursor};

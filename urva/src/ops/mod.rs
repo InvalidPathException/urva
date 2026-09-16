@@ -1,3 +1,4 @@
+pub mod bulk;
 pub mod count;
 pub mod delete;
 pub mod find;

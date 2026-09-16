@@ -2,6 +2,7 @@ use mongodb::bson::Bson;
 use mongodb::error::{ErrorKind, WriteFailure};
 
 use crate::lifecycle::IndexDiff;
+use crate::ops::bulk::BulkReport;
 
 pub type Result<T, E = Error> = std::result::Result<T, E>;
 
@@ -42,6 +43,9 @@ pub enum Error {
 
     #[error("index drift detected: {0:?}")]
     IndexDrift(Box<IndexDiff>),
+
+    #[error("bulk write partially failed: {0:?}")]
+    Bulk(Box<BulkReport>),
 }
 
 impl From<mongodb::bson::ser::Error> for Error {
@@ -69,6 +73,11 @@ impl Error {
     pub fn is_duplicate_key(&self) -> bool {
         match self {
             Error::Driver(e) => driver_error_is_duplicate_key(e),
+            Error::Bulk(report) => report
+                .error
+                .write_errors
+                .values()
+                .any(|e| e.code == DUPLICATE_KEY_CODE),
             _ => false,
         }
     }

@@ -737,7 +737,10 @@ async fn positional_updates_through_other_verbs() {
 
     let high = element_filter("high", ci::qty.gte(5));
     carts
-        .update_many(c::_id.eq(id), c::items.filtered(&high).dot(ci::qty).inc(1))
+        .bulk()
+        .update_one(c::_id.eq(id), c::items.filtered(&high).dot(ci::qty).inc(1))
+        .update_one(c::_id.eq(id), c::items.each().dot(ci::sku).set("z"))
+        .ordered(true)
         .await
         .unwrap();
     let read = carts.find_one(c::_id.eq(id)).await.unwrap().unwrap();
@@ -745,6 +748,7 @@ async fn positional_updates_through_other_verbs() {
         read.items.iter().map(|i| i.qty).collect::<Vec<_>>(),
         vec![3, 6]
     );
+    assert!(read.items.iter().all(|i| i.sku == "z"));
 
     t.drop().await;
 }

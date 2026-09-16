@@ -543,6 +543,57 @@ async fn count_and_stream_read_the_transaction_snapshot() {
     t.drop().await;
 }
 
+#[tokio::test]
+async fn transactional_batch_failures_are_plain_errors() {
+    let Some(t) = TestDb::connect("txn_batch_failure").await else {
+        return;
+    };
+    if !supports_transactions(&t).await {
+        return;
+    }
+    let store: Store<Order> = t.db.store();
+    let client = t.db.client().clone();
+    let taken = *store.insert(order("taken", 0)).await.unwrap().id();
+
+    let store = &store;
+    let result: urva::Result<()> = client
+        .transaction(|mut tx| async move {
+            let error = store
+                .insert_many_with_ids([
+                    (ObjectId::new(), order("a", 1)),
+                    (taken, order("dup", 2)),
+                    (ObjectId::new(), order("c", 3)),
+                ])
+                .session(&mut tx)
+                .await
+                .expect_err("duplicate id");
+            assert!(error.is_duplicate_key(), "{error:?}");
+            Err(error)
+        })
+        .await;
+    assert!(result.unwrap_err().is_duplicate_key());
+
+    let result: urva::Result<()> = client
+        .transaction(|mut tx| async move {
+            let error = store
+                .bulk()
+                .insert(order("a", 1))
+                .insert_with_id(taken, order("dup", 2))
+                .insert(order("c", 3))
+                .ordered(false)
+                .session(&mut tx)
+                .await
+                .expect_err("duplicate id");
+            assert!(error.is_duplicate_key(), "{error:?}");
+            Err(error)
+        })
+        .await;
+    assert!(result.unwrap_err().is_duplicate_key());
+    assert_eq!(store.count_documents(Filter::empty()).await.unwrap(), 1);
+
+    t.drop().await;
+}
+
 #[derive(Entity, Serialize, Deserialize, Debug, Clone)]
 #[entity(collection = "notes")]
 pub struct Note {
@@ -1100,6 +1151,73 @@ async fn manual_transactions_commit_abort_and_drop() {
     e.total = 5;
     store.save(&mut e).await.unwrap();
     assert_eq!(e.version().value(), 3);
+
+    t.drop().await;
+}
+
+#[tokio::test]
+async fn transactional_insert_many_and_bulk_roll_back_with_the_transaction() {
+    let Some(t) = TestDb::connect("txn_batches").await else {
+        return;
+    };
+    if !supports_transactions(&t).await {
+        return;
+    }
+    let store: Store<Order> = t.db.store();
+    let client = t.db.client().clone();
+
+    let many = vec![order("a", 0), order("b", 0)];
+    let one = order("c", 0);
+    let (store, many, one) = (&store, &many, &one);
+    let outcome: urva::Result<Vec<Doc<Order>>> = client
+        .transaction(|mut tx| async move {
+            let inserted = store.insert_many(many.clone()).session(&mut tx).await?;
+            let bulk = store
+                .bulk()
+                .insert(one.clone())
+                .update_one(o::status.eq("a"), o::total.inc(5))
+                .session(&mut tx)
+                .await?;
+            assert_eq!(
+                bulk.inserted[0].version().value(),
+                1,
+                "the attempt hands back the inserted doc"
+            );
+            assert!(inserted.iter().all(|d| d.version().value() == 1));
+            Err(forced_abort())
+        })
+        .await;
+    assert!(
+        matches!(outcome, Err(Error::InvalidUpdate { .. })),
+        "{outcome:?}"
+    );
+    assert_eq!(store.count_documents(Filter::empty()).await.unwrap(), 0);
+
+    let docs = client
+        .transaction(|mut tx| async move {
+            let mut docs = store.insert_many(many.clone()).session(&mut tx).await?;
+            let bulk = store
+                .bulk()
+                .insert(one.clone())
+                .update_one(o::status.eq("a"), o::total.inc(5))
+                .session(&mut tx)
+                .await?;
+            assert_eq!(
+                (bulk.result.inserted_count, bulk.result.modified_count),
+                (1, 1)
+            );
+            docs.extend(bulk.inserted);
+            Ok::<_, Error>((tx, docs))
+        })
+        .await
+        .unwrap();
+    assert_eq!(store.count_documents(Filter::empty()).await.unwrap(), 3);
+    assert_eq!(docs.len(), 3);
+    let a = store.find_one(o::status.eq("a")).await.unwrap().unwrap();
+    assert_eq!(
+        (a.id(), a.total, a.version()),
+        (docs[0].id(), 5, docs[0].version())
+    );
 
     t.drop().await;
 }
